@@ -51,6 +51,7 @@ workshop_energy = {
 # INPUTS
 # ------------------------------
 region = st.selectbox("Region?", ["Select", "National", "Inner London", "Outer London"], index=0)
+prison_name = st.text_input("Prison Name")  # New mandatory field
 customer_type = st.radio("Quote for a?", ["Select", "Commercial", "Another Government Department"], index=0)
 customer_name = st.text_input("Customer?")
 workshop_mode = st.radio("Contract type?", ["Select", "Host", "Production"], index=0)
@@ -80,6 +81,25 @@ for i in range(num_supervisors):
 contracts = st.number_input("How many contracts do these supervisors oversee?", min_value=0, value=0)
 
 # ------------------------------
+# EMPLOYMENT SUPPORT
+# ------------------------------
+support = None
+dev_charge = 0.0
+if customer_type == "Commercial":
+    support = st.radio(
+        "What employment support does this customer offer?",
+        ["Select", "None", "Employment on release and/or RoTL", "Post release support", "Both"],
+        index=0
+    )
+    if support not in (None, "Select"):
+        if support == "None":
+            dev_charge = 0.20
+        elif support in ["Employment on release and/or RoTL", "Post release support"]:
+            dev_charge = 0.10
+        else:  # Both
+            dev_charge = 0.0
+
+# ------------------------------
 # SUPERVISOR % CALCULATION
 # ------------------------------
 st.subheader("Supervisor Time Allocation")
@@ -101,6 +121,41 @@ if apply_pct:
         st.success(f"Supervisor percentage set to {chosen_pct}%")
 
 # ------------------------------
+# VALIDATION FUNCTION
+# ------------------------------
+def validate_inputs():
+    errors = []
+    if region == "Select":
+        errors.append("Please select a region.")
+    if not prison_name.strip():
+        errors.append("Please enter the prison name.")
+    if customer_type == "Select":
+        errors.append("Please select a customer type.")
+    if customer_type == "Commercial" and (support is None or support == "Select"):
+        errors.append("Please select the customer employment support option.")
+    if not customer_name.strip():
+        errors.append("Please enter the customer name.")
+    if workshop_mode == "Select":
+        errors.append("Please select a contract type.")
+    if workshop_size == "Select":
+        errors.append("Please select a workshop size.")
+    if workshop_type == "Select":
+        errors.append("Please select a workshop type.")
+    if workshop_hours <= 0:
+        errors.append("Please enter the number of workshop hours.")
+    if num_prisoners <= 0:
+        errors.append("Please enter the number of prisoners employed.")
+    if prisoner_salary <= 0:
+        errors.append("Please enter the prisoner salary per week.")
+    if num_supervisors <= 0:
+        errors.append("Please enter the number of supervisors.")
+    if not supervisor_salaries or any(s <= 0 for s in supervisor_salaries):
+        errors.append("Please enter all supervisor salaries.")
+    if contracts <= 0:
+        errors.append("Please enter the number of contracts overseen.")
+    return errors
+
+# ------------------------------
 # COST CALCULATIONS
 # ------------------------------
 def calculate_host_costs():
@@ -109,7 +164,7 @@ def calculate_host_costs():
     supervisor_cost = sum((s / 12) * (chosen_pct / 100) for s in supervisor_salaries)
     breakdown["Supervisors"] = supervisor_cost
     # Energy cost based on workshop type
-    energy_rate_per_kwh = 0.34  # £/kWh typical
+    energy_rate_per_kwh = 0.34
     if workshop_type in workshop_energy:
         energy_cost = area * (workshop_energy[workshop_type] / 12) * energy_rate_per_kwh
         breakdown["Energy Cost (£)"] = energy_cost
@@ -117,7 +172,7 @@ def calculate_host_costs():
     breakdown["Depreciation/Maintenance"] = area * 0.5
     region_mult = {"National": 1.0, "Outer London": 1.1, "Inner London": 1.2}.get(region, 1.0)
     breakdown["Regional overhead uplift"] = (sum(breakdown.values())) * (region_mult - 1)
-    breakdown["Development charge"] = supervisor_cost * 0.10 if customer_type == "Commercial" else 0
+    breakdown["Development charge"] = supervisor_cost * dev_charge if customer_type == "Commercial" else 0
     return breakdown, sum(breakdown.values())
 
 def calculate_production_items(items):
@@ -151,27 +206,29 @@ def display_gov_table(breakdown, total_label="Total Monthly Cost"):
     st.markdown(html_table, unsafe_allow_html=True)
 
 # ------------------------------
-# HOST MODE
+# MAIN CALCULATION BUTTON
 # ------------------------------
-if workshop_mode == "Host" and apply_pct:
-    st.subheader("Monthly Cost Breakdown (Host)")
-    breakdown, total = calculate_host_costs()
-    display_gov_table(breakdown)
-
-# ------------------------------
-# PRODUCTION MODE
-# ------------------------------
-elif workshop_mode == "Production":
-    num_items = st.number_input("How many items are produced?", min_value=0, value=0)
-    items = []
-    for i in range(num_items):
-        name = st.text_input(f"Item {i+1} name")
-        workers_needed = st.number_input(f"Prisoners needed to make 1 unit of {name}", min_value=0, value=0, key=f"workers_{i}")
-        mins_per_unit = st.number_input(f"Minutes to make 1 unit of {name}", min_value=0.0, value=0.0, key=f"mins_{i}")
-        prisoners_on_item = st.number_input(f"How many of the {num_prisoners} prisoners work on {name}?", min_value=0, max_value=num_prisoners, value=0, key=f"prisoners_{i}")
-        items.append((name, workers_needed, mins_per_unit, prisoners_on_item))
-
-    if st.button("Calculate Item Costs"):
-        results = calculate_production_items(items)
-        st.subheader("Production Details per Item")
-        st.table(results)
+if st.button("Calculate Costs"):
+    errors = validate_inputs()
+    if errors:
+        for e in errors:
+            st.warning(e)
+    else:
+        # Host Mode
+        if workshop_mode == "Host" and apply_pct:
+            breakdown, total = calculate_host_costs()
+            st.subheader("Monthly Cost Breakdown (Host)")
+            display_gov_table(breakdown)
+        # Production Mode
+        elif workshop_mode == "Production":
+            num_items = st.number_input("How many items are produced?", min_value=0, value=0)
+            items = []
+            for i in range(num_items):
+                name = st.text_input(f"Item {i+1} name")
+                workers_needed = st.number_input(f"Prisoners needed to make 1 unit of {name}", min_value=0, value=0, key=f"workers_{i}")
+                mins_per_unit = st.number_input(f"Minutes to make 1 unit of {name}", min_value=0.0, value=0.0, key=f"mins_{i}")
+                prisoners_on_item = st.number_input(f"How many of the {num_prisoners} prisoners work on {name}?", min_value=0, max_value=num_prisoners, value=0, key=f"prisoners_{i}")
+                items.append((name, workers_needed, mins_per_unit, prisoners_on_item))
+            results = calculate_production_items(items)
+            st.subheader("Production Details per Item")
+            st.table(results)
