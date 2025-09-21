@@ -1,5 +1,4 @@
 import streamlit as st
-import pandas as pd
 
 # ------------------------------
 # PAGE CONFIG
@@ -203,7 +202,33 @@ def display_gov_table(breakdown, total_label="Total Monthly Cost"):
     st.markdown(html_table, unsafe_allow_html=True)
 
 # ------------------------------
-# RUN CALCULATIONS ON BUTTON CLICK
+# CRASH-PROOF DYNAMIC PRODUCTION INPUTS
+# ------------------------------
+
+if "num_products" not in st.session_state:
+    st.session_state.num_products = 1
+
+# Dynamic number of products
+st.session_state.num_products = st.number_input(
+    "How many different products are produced?",
+    min_value=1,
+    value=st.session_state.num_products,
+    step=1
+)
+
+# Prepare product entries
+items = []
+for i in range(st.session_state.num_products):
+    st.markdown(f"### Product {i+1}")
+    name = st.text_input(f"Name of product {i+1}", key=f"name_{i}")
+    workers_needed = st.number_input(f"Workers needed for {name or f'Product {i+1}'}", min_value=0, step=1, key=f"workers_{i}")
+    mins_per_unit = st.number_input(f"Minutes per unit for {name or f'Product {i+1}'}", min_value=0.0, step=1.0, key=f"mins_{i}")
+    prisoners_on_item = st.number_input(f"Prisoners assigned to {name or f'Product {i+1}'}", min_value=0, step=1, key=f"pris_{i}")
+    if name and mins_per_unit > 0:
+        items.append((name, workers_needed, mins_per_unit, prisoners_on_item))
+
+# ------------------------------
+# RUN COST CALCULATION ON BUTTON CLICK
 # ------------------------------
 if st.button("Generate Costing"):
     errors = validate_inputs()
@@ -215,24 +240,8 @@ if st.button("Generate Costing"):
         if workshop_mode == "Host":
             breakdown, total = calculate_host_costs()
             st.subheader("Host Contract Costing")
-            display_gov_table(breakdown, "Total Monthly Cost")
-
+            display_gov_table(breakdown)
         elif workshop_mode == "Production":
-            st.subheader("Production Contract Costing")
-
-            num_items = st.number_input("How many different products are produced?", min_value=1, value=1, step=1)
-
-            items = []
-            for i in range(int(num_items)):
-                st.markdown(f"### Product {i+1}")
-                name = st.text_input(f"Name of product {i+1}", key=f"name_{i}")
-                workers_needed = st.number_input(f"Workers needed for {name or f'Product {i+1}'}", min_value=0, step=1, key=f"workers_{i}")
-                mins_per_unit = st.number_input(f"Minutes per unit for {name or f'Product {i+1}'}", min_value=0.0, step=1.0, key=f"mins_{i}")
-                prisoners_on_item = st.number_input(f"Prisoners assigned to {name or f'Product {i+1}'}", min_value=0, step=1, key=f"pris_{i}")
-
-                if name and mins_per_unit > 0:
-                    items.append((name, workers_needed, mins_per_unit, prisoners_on_item))
-
             if items:
                 sup_monthly = sum([(s / 12) * (chosen_pct / 100) for s in supervisor_salaries])
                 prisoner_monthly = num_prisoners * prisoner_salary * 4.33
