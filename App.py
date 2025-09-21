@@ -1,7 +1,99 @@
 import streamlit as st
 
-st.set_page_config(page_title="Prison Workshop Costing Tool", layout="centered")
+# ------------------------------
+# PAGE CONFIG
+# ------------------------------
+st.set_page_config(
+    page_title="Prison Workshop Costing Tool",
+    layout="centered",
+)
 
+# ------------------------------
+# CUSTOM CSS FOR GOV STYLE
+# ------------------------------
+st.markdown(
+    """
+    <style>
+    /* Overall background and text */
+    .main {
+        background-color: #ffffff;
+        color: #0b0c0c;
+    }
+
+    /* Page title */
+    .stApp h1 {
+        color: #005ea5;
+        font-weight: bold;
+        margin-bottom: 20px;
+    }
+
+    /* Subheaders */
+    .stApp h2, .stApp h3 {
+        color: #005ea5;
+        margin-top: 15px;
+        margin-bottom: 10px;
+    }
+
+    /* Buttons */
+    div.stButton > button:first-child {
+        background-color: #10703c;
+        color: white;
+        font-weight: bold;
+        padding: 6px 12px;
+        border-radius: 4px;
+        margin-top: 10px;
+        margin-bottom: 10px;
+    }
+
+    /* Inputs */
+    div.stTextInput > label, 
+    div.stNumberInput > label, 
+    div.stSelectbox > label, 
+    div.stRadio > label {
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+
+    /* Sliders */
+    .stSlider > div > div:nth-child(1) > div > div > div {
+        color: #005ea5;
+    }
+
+    /* Input sections styling */
+    .stForm, .stContainer {
+        box-shadow: 0 0 5px #e1e1e1;
+        padding: 12px 15px;
+        border-radius: 5px;
+        margin-bottom: 15px;
+    }
+
+    /* GOV.uk style table */
+    table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    table th {
+        background-color: #f3f2f1;
+        text-align: left;
+        padding: 8px;
+        border-bottom: 2px solid #b1b4b6;
+    }
+    table td {
+        padding: 8px;
+        border-bottom: 1px solid #e1e1e1;
+    }
+    table tr.total-row {
+        font-weight: bold;
+        background-color: #e6f0fa;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# ------------------------------
+# APP TITLE
+# ------------------------------
 st.title("Prison Workshop Costing Tool")
 
 # ------------------------------
@@ -47,11 +139,11 @@ contracts = st.number_input("How many contracts do these supervisors oversee?", 
 # SUPERVISOR % CALCULATION
 # ------------------------------
 st.subheader("Supervisor Time Allocation")
+st.markdown("**Recommended allocation based on hours and number of contracts:**")
 
 recommended_pct = round((workshop_hours / 37.5) * (1 / contracts) * 100, 1)
 
-st.write(f"📌 Based on {workshop_hours} hrs/week and {contracts} contracts, "
-         f"recommended supervisor allocation = **{recommended_pct}%**")
+st.info(f"{recommended_pct}% recommended supervisor allocation")
 
 chosen_pct = st.slider("Adjust supervisor % allocation", 0, 100, int(recommended_pct), step=1)
 
@@ -86,52 +178,37 @@ else:
 # COST CALCULATIONS
 # ------------------------------
 def calculate_host_costs():
-    """Calculate Host model monthly costs with breakdown"""
     breakdown = {}
+    breakdown["Prisoner wages"] = num_prisoners * prisoner_salary * 4.33
 
-    # Prisoners
-    breakdown["Prisoner wages"] = num_prisoners * prisoner_salary * 4.33  # monthly
-
-    # Supervisors
     supervisor_cost = 0
     for s in supervisor_salaries:
         monthly = (s / 12) * (chosen_pct / 100)
         supervisor_cost += monthly
     breakdown["Supervisors"] = supervisor_cost
 
-    # Utilities estimate (simplified by area and type)
-    utility_rate = {
-        "Woodwork": 12,
-        "Metalwork": 15,
-        "Warehousing": 6,
-        "Packing": 5,
-        "Textiles": 8,
-        "Empty space (no machinery)": 2
-    }
-    utilities = area * utility_rate[workshop_type] * (workshop_hours / 37.5) * 4.33 / 100
-    breakdown["Utilities"] = utilities
+    commercial_rates = {"Electric": 1.5, "Gas": 0.8, "Water": 0.3}
+    hours_factor = workshop_hours / 37.5
+    for util, rate in commercial_rates.items():
+        cost = area * rate * hours_factor
+        breakdown[f"{util} (£{rate}/m²)"] = cost
 
-    # Maintenance / depreciation (flat % of utilities + area)
-    breakdown["Maintenance"] = area * 0.5
+    breakdown["Administration"] = 150
+    breakdown["Depreciation/Maintenance"] = area * 0.5
 
-    # Overheads (region multiplier)
     region_mult = {"National": 1.0, "Outer London": 1.1, "Inner London": 1.2}[region]
     overheads = (sum(breakdown.values())) * (region_mult - 1)
     breakdown["Regional overhead uplift"] = overheads
 
-    # Development charge
     dev_amount = (supervisor_cost if customer_type == "Commercial" else 0) * dev_charge
     breakdown["Development charge"] = dev_amount
 
-    # Total
     total = sum(breakdown.values())
     return breakdown, total
 
 
 def calculate_production_items(items):
-    """Calculate per-unit costs for Production model"""
     results = {}
-    # Supervisor monthly cost
     sup_monthly = sum([(s / 12) * (chosen_pct / 100) for s in supervisor_salaries])
     prisoner_monthly = num_prisoners * prisoner_salary * 4.33
 
@@ -143,6 +220,36 @@ def calculate_production_items(items):
         results[name] = round(unit_cost, 2)
     return results
 
+# ------------------------------
+# FUNCTION TO DISPLAY GOV-STYLE TABLE
+# ------------------------------
+def display_gov_table(breakdown, total_label="Total Monthly Cost"):
+    html_table = """
+    <table>
+    <thead>
+    <tr>
+        <th>Cost Item</th>
+        <th>Amount (£)</th>
+    </tr>
+    </thead>
+    <tbody>
+    """
+    for k, v in breakdown.items():
+        html_table += f"""
+        <tr>
+            <td>{k}</td>
+            <td>£{v:,.2f}</td>
+        </tr>
+        """
+
+    html_table += f"""
+    <tr class="total-row">
+        <td>{total_label}</td>
+        <td>£{sum(breakdown.values()):,.2f}</td>
+    </tr>
+    </tbody></table>
+    """
+    st.markdown(html_table, unsafe_allow_html=True)
 
 # ------------------------------
 # HOST MODE
@@ -151,9 +258,7 @@ if workshop_mode == "Host":
     if apply_pct:
         st.subheader("Monthly Cost Breakdown (Host)")
         breakdown, total = calculate_host_costs()
-        for k, v in breakdown.items():
-            st.write(f"- {k}: £{v:,.2f}")
-        st.write(f"### 💰 Total Monthly Cost: £{total:,.2f}")
+        display_gov_table(breakdown)
 
 # ------------------------------
 # PRODUCTION MODE
@@ -170,5 +275,4 @@ elif workshop_mode == "Production":
     if st.button("Calculate Item Costs"):
         results = calculate_production_items(items)
         st.subheader("Per-Unit Costs")
-        for k, v in results.items():
-            st.write(f"- {k}: £{v}")
+        display_gov_table(results, total_label="Unit Cost")
