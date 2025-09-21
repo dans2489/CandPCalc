@@ -43,12 +43,10 @@ st.title("Prison Workshop Costing Tool")
 # INPUTS
 # ------------------------------
 region = st.selectbox("Region?", ["", "National", "Inner London", "Outer London"])
-prison_name = st.text_input("Prison Name?")
 customer_type = st.radio("Quote for a?", ["", "Commercial", "Another Government Department"])
 customer_name = st.text_input("Customer?")
 workshop_mode = st.radio("Contract type?", ["", "Host", "Production"])
 workshop_size = st.selectbox("Workshop size?", ["", "Small", "Medium", "Large", "Enter dimensions"])
-
 if workshop_size == "Enter dimensions":
     width = st.number_input("Width (m)", min_value=1, value=1)
     length = st.number_input("Length (m)", min_value=1, value=1)
@@ -85,8 +83,8 @@ if workshop_hours>0 and contracts>0:
     st.info(f"Recommended supervisor allocation: {recommended_pct}%")
     chosen_pct = st.slider("Adjust supervisor % allocation", 0, 100, int(recommended_pct), step=1)
 
-    reason = ""  
-    if chosen_pct < recommended_pct:  
+    reason = ""
+    if chosen_pct < recommended_pct:
         reason = st.text_area("You have selected a supervisor contribution less than the recommended. Please explain why here...")
 
 # ------------------------------
@@ -128,60 +126,47 @@ def calculate_host_costs():
     supervisor_cost = sum((s / 12)*(chosen_pct/100) for s in supervisor_salaries)
     breakdown["Supervisors"] = supervisor_cost
 
-    rates = energy_rates.get(workshop_type, {"Electric":0,"Gas":0,"Water":0})  
-    hours_factor = workshop_hours/37.5  
-    for k,v in rates.items():  
-        breakdown[f"{k} (£{v}/m²)"] = area*v*hours_factor  
+    rates = energy_rates.get(workshop_type, {"Electric":0,"Gas":0,"Water":0})
+    hours_factor = workshop_hours/37.5
+    for k,v in rates.items():
+        breakdown[f"{k} (£{v}/m²)"] = area*v*hours_factor
 
-    breakdown["Administration"] = 150  
-    breakdown["Depreciation/Maintenance"] = area*0.5  
+    breakdown["Administration"] = 150
+    breakdown["Depreciation/Maintenance"] = area*0.5
 
-    region_mult = {"National":1.0,"Outer London":1.1,"Inner London":1.2}.get(region,1.0)  
-    breakdown["Regional overhead uplift"] = sum(breakdown.values())*(region_mult-1)  
+    region_mult = {"National":1.0,"Outer London":1.1,"Inner London":1.2}.get(region,1.0)
+    breakdown["Regional overhead uplift"] = sum(breakdown.values())*(region_mult-1)
 
-    breakdown["Development charge"] = supervisor_cost*dev_charge if customer_type=="Commercial" else 0  
+    breakdown["Development charge"] = supervisor_cost*dev_charge if customer_type=="Commercial" else 0
     return breakdown, sum(breakdown.values())
 
 def calculate_production_items(items):
     results = {}
     sup_monthly = sum([(s/12)*(chosen_pct/100) for s in supervisor_salaries])
     prisoner_monthly = num_prisoners*prisoner_salary*4.33
-    for name, workers, mins, secs, prisoners_allocated in items:
+    for name, workers, mins, secs in items:
         total_mins = mins + secs/60
         units_per_month = (workers*workshop_hours*60*4.33)/max(total_mins,0.01)
         total_cost = sup_monthly + prisoner_monthly
-        unit_cost = round(total_cost/units_per_month,2)
-        max_units = prisoners_allocated * workshop_hours*60*4.33 / max(total_mins,0.01)
-        min_units_to_cover = round(total_cost/unit_cost)
-        results[name] = {
-            "Unit Cost (£)": unit_cost,
-            "Min Units/week to cover costs": min_units_to_cover,
-            "Max Units available": round(max_units)
-        }
+        results[name] = round(total_cost/units_per_month,2)
     return results
 
-def display_gov_table_dict(results_dict, total_label=None):
+def display_gov_table(breakdown, total_label="Total Monthly Cost"):
     html_table = "<table style='width:100%; border-collapse: collapse;'>"
-    html_table += "<thead><tr style='background-color:#f3f2f1; text-align:left;'><th style='padding:8px;'>Item</th>"
-    for col in next(iter(results_dict.values())).keys():
-        html_table += f"<th style='padding:8px;'>{col}</th>"
-    html_table += "</tr></thead><tbody>"
-    for k,v in results_dict.items():
-        html_table += f"<tr><td>{k}</td>"
-        for val in v.values():
-            html_table += f"<td>£{val if isinstance(val,float) else val}</td>"
-        html_table += "</tr>"
-    html_table += "</tbody></table>"
+    html_table += "<thead><tr style='background-color:#f3f2f1; text-align:left;'><th style='padding:8px; border-bottom: 2px solid #b1b4b6;'>Cost Item</th><th style='padding:8px; border-bottom: 2px solid #b1b4b6;'>Amount (£)</th></tr></thead><tbody>"
+    for k,v in breakdown.items():
+        html_table += f"<tr style='border-bottom:1px solid #e1e1e1;'><td style='padding:8px;'>{k}</td><td style='padding:8px;'>£{v:,.2f}</td></tr>"
+    total_value = sum(breakdown.values()) if isinstance(breakdown, dict) else sum([v for v in breakdown.values()])
+    html_table += f"<tr style='font-weight:bold; background-color:#e6f0fa;'><td style='padding:8px;'>{total_label}</td><td style='padding:8px;'>£{total_value:,.2f}</td></tr></tbody></table>"
     st.markdown(html_table, unsafe_allow_html=True)
 
 # ------------------------------
 # HOST MODE
 # ------------------------------
-apply_pct = True
 if workshop_mode=="Host" and apply_pct:
     st.subheader("Monthly Cost Breakdown (Host)")
     breakdown, total = calculate_host_costs()
-    display_gov_table_dict({k: {"Amount (£)": v} for k,v in breakdown.items()})
+    display_gov_table(breakdown)
 
 # ------------------------------
 # PRODUCTION MODE
@@ -194,12 +179,11 @@ elif workshop_mode=="Production":
         workers = st.number_input(f"Prisoners needed to make 1 unit of {name}", min_value=1, value=1, key=f"workers_{i}")
         mins = st.number_input(f"Minutes to make 1 unit of {name}", min_value=0, value=0, key=f"mins_{i}")
         secs = st.number_input(f"Seconds to make 1 unit of {name}", min_value=0, max_value=59, value=0, key=f"secs_{i}")
-        prisoners_allocated = st.number_input(f"Prisoners allocated to {name}", min_value=1, max_value=num_prisoners, value=1, key=f"alloc_{i}")
-        items.append((name, workers, mins, secs, prisoners_allocated))
+        items.append((name,workers,mins,secs))
     if st.button("Calculate Item Costs"):
         results = calculate_production_items(items)
-        st.subheader("Production Cost Analysis")
-        display_gov_table_dict(results)
+        st.subheader("Per-Unit Costs")
+        display_gov_table(results,total_label="Unit Cost")
 
 # ------------------------------
 # EMAIL FUNCTIONALITY
@@ -214,6 +198,7 @@ def send_email(to_email, subject, body, sender_email, sender_password):
         server.login(sender_email, sender_password)
         server.send_message(msg)
 
+# Email results if breakdown exists
 if ('breakdown' in locals() or 'results' in locals()):
     st.subheader("Email Results")
     recipient_email = st.text_input("Recipient email address")
@@ -227,7 +212,7 @@ if ('breakdown' in locals() or 'results' in locals()):
             body+=f"Total Monthly Cost: £{sum(breakdown.values()):,.2f}\n"
         else:
             for k,v in results.items():
-                body+=f"{k}: {v}\n"
+                body+=f"{k}: £{v}\n"
         try:
             send_email(recipient_email,"Prison Workshop Costing Results",body,sender_email,sender_password)
             st.success("Email sent successfully!")
