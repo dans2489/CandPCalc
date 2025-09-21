@@ -4,7 +4,7 @@ import streamlit as st
 # PAGE CONFIG
 # ------------------------------
 st.set_page_config(
-    page_title="Prison Workshop Costing Tool",
+    page_title="Cost and Price Calculator",
     layout="centered",
 )
 
