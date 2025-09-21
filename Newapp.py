@@ -1,4 +1,5 @@
 import streamlit as st
+import pandas as pd
 
 # ------------------------------
 # PAGE CONFIG
@@ -51,7 +52,7 @@ workshop_energy = {
 # INPUTS
 # ------------------------------
 region = st.selectbox("Region?", ["Select", "National", "Inner London", "Outer London"], index=0)
-prison_name = st.text_input("Prison Name")  # mandatory field
+prison_name = st.text_input("Prison Name")
 customer_type = st.radio("Quote for a?", ["Select", "Commercial", "Another Government Department"], index=0)
 customer_name = st.text_input("Customer?")
 workshop_mode = st.radio("Contract type?", ["Select", "Host", "Production"], index=0)
@@ -96,7 +97,7 @@ if customer_type == "Commercial":
             dev_charge = 0.20
         elif support in ["Employment on release and/or RoTL", "Post release support"]:
             dev_charge = 0.10
-        else:  # Both
+        else:
             dev_charge = 0.0
 
 # ------------------------------
@@ -158,7 +159,6 @@ def calculate_host_costs():
     breakdown["Prisoner wages"] = num_prisoners * prisoner_salary * 4.33
     supervisor_cost = sum((s / 12) * (chosen_pct / 100) for s in supervisor_salaries)
     breakdown["Supervisors"] = supervisor_cost
-    # Energy cost based on workshop type
     energy_rate_per_kwh = 0.34
     if workshop_type in workshop_energy:
         energy_cost = area * (workshop_energy[workshop_type] / 12) * energy_rate_per_kwh
@@ -170,10 +170,8 @@ def calculate_host_costs():
     breakdown["Development charge"] = supervisor_cost * dev_charge if customer_type == "Commercial" else 0
     return breakdown, sum(breakdown.values())
 
-def calculate_production_items(items):
+def calculate_production_items(items, sup_monthly, prisoner_monthly, workshop_hours):
     results = []
-    sup_monthly = sum([(s / 12) * (chosen_pct / 100) for s in supervisor_salaries])
-    prisoner_monthly = num_prisoners * prisoner_salary * 4.33
     for name, workers_needed, mins_per_unit, prisoners_on_item in items:
         available_minutes = prisoners_on_item * workshop_hours * 60 * 4.33
         max_units = available_minutes / mins_per_unit if mins_per_unit > 0 else 0
@@ -182,8 +180,11 @@ def calculate_production_items(items):
         weekly_units_needed = round((total_cost / 4.33) / unit_cost, 1) if unit_cost > 0 else 0
         results.append({
             "Item": name,
-            "Unit Cost (£)": unit_cost,
+            "Workers Needed": workers_needed,
+            "Minutes per Unit": mins_per_unit,
+            "Prisoners Assigned": prisoners_on_item,
             "Max Units/Month": int(max_units),
+            "Unit Cost (£)": unit_cost,
             "Units Needed/Week": weekly_units_needed
         })
     return results
@@ -192,30 +193,13 @@ def calculate_production_items(items):
 # DISPLAY GOV STYLE TABLE
 # ------------------------------
 def display_gov_table(breakdown, total_label="Total Monthly Cost"):
-    html_table = "<table style='width:100%; border-collapse: collapse;'>"
-    html_table += (
-        "<thead><tr style='background-color:#f3f2f1; text-align:left;'>"
-        "<th style='padding:8px; border-bottom: 2px solid #b1b4b6;'>Cost Item</th>"
-        "<th style='padding:8px; border-bottom: 2px solid #b1b4b6;'>Amount (£)</th>"
-        "</tr></thead><tbody>"
-    )
+    html_table = "<table>"
+    html_table += "<thead><tr><th>Cost Item</th><th>Amount (£)</th></tr></thead><tbody>"
     for k, v in breakdown.items():
-        html_table += (
-            f"<tr style='border-bottom:1px solid #e1e1e1;'>"
-            f"<td style='padding:8px;'>{k}</td>"
-            f"<td style='padding:8px;'>£{v:,.2f}</td>"
-            "</tr>"
-        )
-
+        html_table += f"<tr><td>{k}</td><td>£{v:,.2f}</td></tr>"
     total_value = sum(breakdown.values())
-    html_table += (
-        f"<tr class='total-row'>"
-        f"<td style='padding:8px;'>{total_label}</td>"
-        f"<td style='padding:8px;'>£{total_value:,.2f}</td>"
-        "</tr>"
-    )
+    html_table += f"<tr class='total-row'><td>{total_label}</td><td>£{total_value:,.2f}</td></tr>"
     html_table += "</tbody></table>"
-
     st.markdown(html_table, unsafe_allow_html=True)
 
 # ------------------------------
@@ -232,13 +216,43 @@ if st.button("Generate Costing"):
             breakdown, total = calculate_host_costs()
             st.subheader("Host Contract Costing")
             display_gov_table(breakdown, "Total Monthly Cost")
+
         elif workshop_mode == "Production":
             st.subheader("Production Contract Costing")
-            st.info("Enter items to calculate costs. Example provided below.")
-            # Example production items (you can replace with st.data_editor or st.text_input loop)
-            sample_items = [
-                ("Chair", 5, 30, 10),
-                ("Table", 3, 60, 8),
+            st.info("Enter production items below:")
+
+            # Empty table for user input
+            empty_df = pd.DataFrame(
+                columns=["Item", "Workers Needed", "Minutes per Unit", "Prisoners Assigned"]
+            )
+            edited_df = st.data_editor(
+                empty_df,
+                num_rows="dynamic",
+                use_container_width=True,
+                key="production_items",
+            )
+
+            items = [
+                (
+                    row["Item"],
+                    int(row["Workers Needed"]),
+                    float(row["Minutes per Unit"]),
+                    int(row["Prisoners Assigned"]),
+                )
+                for _, row in edited_df.iterrows()
+                if row["Item"] and row["Minutes per Unit"] > 0
             ]
-            results = calculate_production_items(sample_items)
-            st.table(results)
+
+            if items:
+                sup_monthly = sum([(s / 12) * (chosen_pct / 100) for s in supervisor_salaries])
+                prisoner_monthly = num_prisoners * prisoner_salary * 4.33
+                results = calculate_production_items(items, sup_monthly, prisoner_monthly, workshop_hours)
+
+                html_table = "<table>"
+                html_table += "<thead><tr><th>Item</th><th>Workers Needed</th><th>Minutes per Unit</th><th>Prisoners Assigned</th><th>Max Units/Month</th><th>Unit Cost (£)</th><th>Units Needed/Week</th></tr></thead><tbody>"
+                for r in results:
+                    html_table += f"<tr><td>{r['Item']}</td><td>{r['Workers Needed']}</td><td>{r['Minutes per Unit']}</td><td>{r['Prisoners Assigned']}</td><td>{r['Max Units/Month']}</td><td>£{r['Unit Cost (£)']}</td><td>{r['Units Needed/Week']}</td></tr>"
+                html_table += "</tbody></table>"
+                st.markdown(html_table, unsafe_allow_html=True)
+            else:
+                st.warning("⚠️ Please enter at least one valid item to calculate costs.")
