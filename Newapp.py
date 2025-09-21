@@ -3,6 +3,7 @@ import streamlit as st
 # ------------------------------
 # PAGE CONFIG
 # ------------------------------
+# Set title and layout of the Streamlit app
 st.set_page_config(
     page_title="Prison Workshop Costing Tool",
     layout="centered",
@@ -11,6 +12,7 @@ st.set_page_config(
 # ------------------------------
 # CUSTOM CSS FOR GOV STYLE
 # ------------------------------
+# This is purely styling to mimic government website look
 st.markdown("""
 <style>
 .main { background-color: #ffffff; color: #0b0c0c; }
@@ -30,10 +32,12 @@ table tr.total-row { font-weight: bold; background-color: #e6f0fa; }
 # ------------------------------
 # APP TITLE
 # ------------------------------
-st.title("Prison Workshop Costing Tool")
+st.title("Cost and Price Calculator")
 
 # ------------------------------
 # WORKSHOP TYPE UTILITIES (Commercial Rates)
+# Units: electricity/gas in kWh/m²/year, water in m³/m²/year
+# Rates in £/unit commercial
 # ------------------------------
 workshop_utilities = {
     "Woodwork": {"electric": 75, "gas": 40, "water": 0.55},
@@ -44,7 +48,7 @@ workshop_utilities = {
     "Empty space (no machinery)": {"electric": 10, "gas": 5, "water": 0.55},
 }
 
-unit_costs = {"electric": 0.257, "gas": 0.063, "water": 2.47}  # £/kWh or £/m³
+unit_costs = {"electric": 0.257, "gas": 0.063, "water": 2.47}  # £ per kWh or £ per m³
 
 # ------------------------------
 # INPUTS
@@ -56,12 +60,13 @@ customer_name = st.text_input("Customer?")
 workshop_mode = st.radio("Contract type?", ["Select", "Host", "Production"], index=0)
 workshop_size = st.selectbox("Workshop size?", ["Select", "Small", "Medium", "Large", "Enter dimensions"], index=0)
 
+# Area calculation
 area = 0
 if workshop_size == "Enter dimensions":
     width = st.number_input("Width (m)", min_value=0.0, format="%.2f", value=0.0)
     length = st.number_input("Length (m)", min_value=0.0, format="%.2f", value=0.0)
     if width > 0 and length > 0:
-        area = width * length
+        area = width * length  # m²
 else:
     area_map = {"Small": 100, "Medium": 250, "Large": 500}
     area = area_map.get(workshop_size, 0)
@@ -80,7 +85,7 @@ for i in range(num_supervisors):
 contracts = st.number_input("How many contracts do these supervisors oversee?", min_value=0, value=0)
 
 # ------------------------------
-# EMPLOYMENT SUPPORT
+# EMPLOYMENT SUPPORT (Commercial)
 # ------------------------------
 support = None
 dev_charge = 0.0
@@ -154,30 +159,32 @@ def validate_inputs():
 # ------------------------------
 def calculate_host_costs():
     breakdown = {}
-    weeks_to_month = 12/52
+    weeks_to_month = 52/12  # weeks per month conversion
 
-    # Labour
+    # 1. Prisoner wages (weekly salary × num prisoners × weeks per month)
     breakdown["Prisoner wages"] = num_prisoners * prisoner_salary * weeks_to_month
+
+    # 2. Supervisor cost (monthly allocation based on chosen %)
     supervisor_cost = sum((s / 12) * (chosen_pct / 100) for s in supervisor_salaries)
     breakdown["Supervisors"] = supervisor_cost
 
-    # Utilities per workshop type
+    # 3. Utilities (electric, gas, water)
     if workshop_type in workshop_utilities:
         util = workshop_utilities[workshop_type]
         breakdown["Electricity (£)"] = area * (util["electric"] / 12) * unit_costs["electric"]
         breakdown["Gas (£)"] = area * (util["gas"] / 12) * unit_costs["gas"]
         breakdown["Water (£)"] = area * (util["water"] / 12) * unit_costs["water"]
 
-    # Fixed Administration and Maintenance
+    # 4. Administration and Maintenance
     breakdown["Administration (£)"] = 150
     breakdown["Maintenance / Depreciation (£)"] = area * 0.50
 
-    # Regional uplift
+    # 5. Regional uplift
     region_mult_map = {"National": 1.00, "Outer London": 1.10, "Inner London": 1.28}
     region_mult = region_mult_map.get(region, 1.0)
     breakdown["Regional overhead uplift"] = sum(breakdown.values()) * (region_mult - 1)
 
-    # Development charge for commercial
+    # 6. Development charge
     breakdown["Development charge"] = supervisor_cost * dev_charge if customer_type == "Commercial" else 0
 
     return breakdown, sum(breakdown.values())
@@ -207,8 +214,8 @@ if st.button("Calculate Costs"):
         for err in errors:
             st.write(f"- {err}")
     else:
-        weeks_to_month = 12/52
-        month_to_weeks = 52/12
+        weeks_to_month = 52/12  # weeks per month
+        month_to_weeks = 12/52  # months per week
 
         # HOST COSTS
         if workshop_mode == "Host":
@@ -225,22 +232,19 @@ if st.button("Calculate Costs"):
             prisoner_monthly = num_prisoners * prisoner_salary * weeks_to_month
 
             for name, workers_needed, mins_per_unit, prisoners_on_item in production_items:
-                # Convert weekly hours to monthly available minutes
+                # Available minutes per month
                 available_minutes_per_month = prisoners_on_item * workshop_hours * 60 * weeks_to_month
-                max_units_per_month = available_minutes_per_month / mins_per_unit if mins_per_unit > 0 else 0
-                max_units_per_week = max_units_per_month * month_to_weeks
 
-                total_cost_monthly = sup_monthly + prisoner_monthly
-                unit_cost = total_cost_monthly / max(max_units_per_month, 1) if max_units_per_month > 0 else 0
+                # Total monthly cost
+                total_monthly_cost = sup_monthly + prisoner_monthly
 
-                # Weekly total cost
-                weekly_total_cost = total_cost_monthly * month_to_weeks
+                # Unit cost per item
+                unit_cost = total_monthly_cost / max(available_minutes_per_month / mins_per_unit, 1)
+
+                # Minimum items per week to cover costs
+                weekly_total_cost = total_monthly_cost * month_to_weeks
                 min_items_per_week = round(weekly_total_cost / unit_cost, 1) if unit_cost > 0 else 0
-
-                # Ensure minimum does not exceed maximum
-                min_items_per_week = min(min_items_per_week, max_units_per_week)
 
                 st.write(f"**Item: {name}**")
                 st.write(f"- Unit Cost (£): £{unit_cost:,.2f}")
                 st.write(f"- Minimum items needed per week to cover costs: {min_items_per_week:,.1f}")
-                st.write(f"- Maximum number of items that can be produced per week: {max_units_per_week:,.1f}")
