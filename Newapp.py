@@ -51,7 +51,7 @@ workshop_energy = {
 # INPUTS
 # ------------------------------
 region = st.selectbox("Region?", ["Select", "National", "Inner London", "Outer London"], index=0)
-prison_name = st.text_input("Prison Name")  # New mandatory field
+prison_name = st.text_input("Prison Name")  # mandatory field
 customer_type = st.radio("Quote for a?", ["Select", "Commercial", "Another Government Department"], index=0)
 customer_name = st.text_input("Customer?")
 workshop_mode = st.radio("Contract type?", ["Select", "Host", "Production"], index=0)
@@ -109,16 +109,9 @@ if workshop_hours > 0 and contracts > 0:
     recommended_pct = round((workshop_hours / 37.5) * (1 / contracts) * 100, 1)
     st.info(f"{recommended_pct}% recommended supervisor allocation")
 chosen_pct = st.slider("Adjust supervisor % allocation", 0, 100, int(recommended_pct), step=1)
-apply_pct = st.button("Set Supervisor %")
-if apply_pct:
-    if chosen_pct < recommended_pct:
-        reason = st.text_area("Please explain why you are choosing a lower percentage:")
-        if reason.strip() != "":
-            st.success(f"Supervisor percentage set to {chosen_pct}% with explanation: {reason}")
-        else:
-            st.warning("Please provide a reason for choosing a lower percentage.")
-    else:
-        st.success(f"Supervisor percentage set to {chosen_pct}%")
+reason_for_low_pct = ""
+if chosen_pct < recommended_pct:
+    reason_for_low_pct = st.text_area("Please explain why you are choosing a lower percentage:")
 
 # ------------------------------
 # VALIDATION FUNCTION
@@ -153,6 +146,8 @@ def validate_inputs():
         errors.append("Please enter all supervisor salaries.")
     if contracts <= 0:
         errors.append("Please enter the number of contracts overseen.")
+    if chosen_pct < recommended_pct and not reason_for_low_pct.strip():
+        errors.append("Please provide a reason for choosing a lower supervisor % allocation.")
     return errors
 
 # ------------------------------
@@ -202,33 +197,4 @@ def display_gov_table(breakdown, total_label="Total Monthly Cost"):
     for k, v in breakdown.items():
         html_table += f"<tr style='border-bottom:1px solid #e1e1e1;'><td style='padding:8px;'>{k}</td><td style='padding:8px;'>£{v:,.2f}</td></tr>"
     total_value = sum(breakdown.values())
-    html_table += f"<tr style='font-weight:bold; background-color:#e6f0fa;'><td style='padding:8px;'>{total_label}</td><td style='padding:8px;'>£{total_value:,.2f}</td></tr></tbody></table>"
-    st.markdown(html_table, unsafe_allow_html=True)
-
-# ------------------------------
-# MAIN CALCULATION BUTTON
-# ------------------------------
-if st.button("Calculate Costs"):
-    errors = validate_inputs()
-    if errors:
-        for e in errors:
-            st.warning(e)
-    else:
-        # Host Mode
-        if workshop_mode == "Host" and apply_pct:
-            breakdown, total = calculate_host_costs()
-            st.subheader("Monthly Cost Breakdown (Host)")
-            display_gov_table(breakdown)
-        # Production Mode
-        elif workshop_mode == "Production":
-            num_items = st.number_input("How many items are produced?", min_value=0, value=0)
-            items = []
-            for i in range(num_items):
-                name = st.text_input(f"Item {i+1} name")
-                workers_needed = st.number_input(f"Prisoners needed to make 1 unit of {name}", min_value=0, value=0, key=f"workers_{i}")
-                mins_per_unit = st.number_input(f"Minutes to make 1 unit of {name}", min_value=0.0, value=0.0, key=f"mins_{i}")
-                prisoners_on_item = st.number_input(f"How many of the {num_prisoners} prisoners work on {name}?", min_value=0, max_value=num_prisoners, value=0, key=f"prisoners_{i}")
-                items.append((name, workers_needed, mins_per_unit, prisoners_on_item))
-            results = calculate_production_items(items)
-            st.subheader("Production Details per Item")
-            st.table(results)
+    html_table += f"<tr style='font-weight:bold; background-color:#e6f0fa;'><td style='padding:8px;'>{total_label}</td><td style='padding:8px;'>
