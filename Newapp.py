@@ -2,65 +2,10 @@ import streamlit as st
 import datetime
 
 # ------------------------------
-# SESSION STATE SETUP
-# ------------------------------
-if "users" not in st.session_state:
-    st.session_state["users"] = {}
-if "logged_in" not in st.session_state:
-    st.session_state["logged_in"] = False
-if "current_user" not in st.session_state:
-    st.session_state["current_user"] = None
-if "quotes" not in st.session_state:
-    st.session_state["quotes"] = []
-if "quote_counter" not in st.session_state:
-    st.session_state["quote_counter"] = 1
-
-
-# ------------------------------
-# LOGIN / REGISTER MOCKUP
-# ------------------------------
-def login_screen():
-    st.title("ðŸ” Prison Workshop Costing Tool - Login")
-
-    tab1, tab2 = st.tabs(["Login", "Register"])
-
-    with tab1:
-        st.subheader("Login to your account")
-        email = st.text_input("Email")
-        password = st.text_input("Password", type="password")
-        if st.button("Login"):
-            if email in st.session_state["users"] and st.session_state["users"][email] == password:
-                st.session_state["logged_in"] = True
-                st.session_state["current_user"] = email
-                st.success("Login successful âœ…")
-                st.experimental_rerun()
-            else:
-                st.error("Invalid email or password")
-
-    with tab2:
-        st.subheader("Create a new account")
-        new_email = st.text_input("Justice Email (must end with @justice.gov.uk)")
-        new_password = st.text_input("Password", type="password")
-        if st.button("Register"):
-            if not new_email.endswith("@justice.gov.uk"):
-                st.error("Only @justice.gov.uk emails are allowed")
-            elif new_email in st.session_state["users"]:
-                st.error("User already exists")
-            else:
-                st.session_state["users"][new_email] = new_password
-                st.success("Registration successful âœ… You can now log in.")
-
-
-# ------------------------------
-# START COSTING TOOL
+# COSTING TOOL
 # ------------------------------
 def costing_tool():
     st.title("Prison Workshop Costing Tool")
-
-    if st.button("Logout"):
-        st.session_state["logged_in"] = False
-        st.session_state["current_user"] = None
-        st.experimental_rerun()
 
     # Inputs
     region = st.selectbox("Region?", ["", "National", "Inner London", "Outer London"])
@@ -162,7 +107,7 @@ def costing_tool():
             items.append((name, assigned, mins, secs))
 
     # GENERATE QUOTE BUTTON
-    if st.button("Generate Quote & Exit"):
+    if st.button("Generate Quote"):
         breakdown, total = calculate_host_costs()
 
         if workshop_mode == "Production":
@@ -182,39 +127,17 @@ def costing_tool():
                     "Min units/month to cover costs": int(min_units)
                 }
 
-        # Save quote in session
-        quote_num = f"HMPPS{st.session_state['quote_counter']:04d}"
-        st.session_state["quote_counter"] += 1
+        st.success("Quote generated âœ… (simplified version, no PDF, no login)")
+        st.write("### Cost Breakdown")
+        for k, v in breakdown.items():
+            st.write(f"{k}: Â£{v:,.2f}")
+        st.write(f"**Total: Â£{total:,.2f}**")
 
-        st.session_state["quotes"].append({
-            "quote_num": quote_num,
-            "region": region,
-            "prison": prison_name,
-            "customer": customer_name,
-            "total": total,
-            "date": datetime.date.today()
-        })
-
-        st.success(f"Quote {quote_num} generated âœ… (PDF export disabled in this version)")
-
-        # Exit / log out
-        st.session_state["logged_in"] = False
-        st.session_state["current_user"] = None
-        st.experimental_rerun()
-
-    # MY QUOTES
-    st.subheader("My Quotes")
-    if len(st.session_state["quotes"]) == 0:
-        st.info("No quotes yet.")
-    else:
-        for q in st.session_state["quotes"]:
-            st.write(f"ðŸ“Œ {q['quote_num']} | {q['prison']} | {q['region']} | Â£{q['total']:,.2f} | {q['date']}")
+        if production_results:
+            st.write("### Production Details")
+            for item, v in production_results.items():
+                st.write(f"{item} | Â£{v['Unit cost']} | {v['Max units/month']} | {v['Min units/month to cover costs']}")
 
 
-# ------------------------------
-# MAIN APP
-# ------------------------------
-if not st.session_state["logged_in"]:
-    login_screen()
-else:
-    costing_tool()
+# Run app
+costing_tool()
