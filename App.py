@@ -114,7 +114,7 @@ def generate_pdf(quote_num, region, prison, customer, workshop_mode, breakdown, 
     return buffer
 
 # ------------------------------
-# COSTING TOOL
+# START COSTING TOOL
 # ------------------------------
 def costing_tool():
     st.title("Prison Workshop Costing Tool")
@@ -167,7 +167,7 @@ def costing_tool():
             "Supervisor contribution below recommended. Please explain..."
         )
 
-    # Employment support
+    # Employment support and development charge
     if customer_type == "Commercial":
         support = st.radio("Employment support offered?", ["", "None", "Employment on release and/or RoTL", "Post release support", "Both"])
     else:
@@ -183,7 +183,7 @@ def costing_tool():
     else:
         dev_charge = 0.0
 
-    # Energy rates
+    # Energy rates (evidence-based)
     energy_rates = {
         "Woodwork": {"Electric": 2.0, "Gas": 1.0, "Water": 0.4},
         "Metalwork": {"Electric": 2.5, "Gas": 1.2, "Water": 0.5},
@@ -193,6 +193,7 @@ def costing_tool():
         "Empty space (no machinery)": {"Electric": 0.5, "Gas": 0.2, "Water": 0.1}
     }
 
+    # Host cost calculation
     def calculate_host_costs():
         breakdown = {}
         breakdown["Prisoner wages"] = num_prisoners * prisoner_salary * 4.33
@@ -209,7 +210,7 @@ def costing_tool():
         breakdown["Development charge"] = supervisor_cost * dev_charge if customer_type == "Commercial" else 0
         return breakdown, sum(breakdown.values())
 
-    # Production mode
+    # Production mode setup
     production_results = None
     if workshop_mode == "Production":
         num_items = st.number_input("How many items?", min_value=1, value=1)
@@ -220,8 +221,7 @@ def costing_tool():
             mins = st.number_input(f"Minutes to make 1 unit of {name}", min_value=0, value=0, key=f"mins_{i}")
             secs = st.number_input(f"Seconds to make 1 unit of {name}", min_value=0, max_value=59, value=0, key=f"secs_{i}")
             items.append((name, assigned, mins, secs))
-
-    # ------------------------------
+            # ------------------------------
     # GENERATE QUOTE BUTTON
     # ------------------------------
     if st.button("Generate Quote, Email & Exit"):
@@ -229,24 +229,24 @@ def costing_tool():
             breakdown, total = calculate_host_costs()
             if workshop_mode == "Production":
                 production_results = {}
-                sup_monthly = sum((s/12)*(chosen_pct/100) for s in supervisor_salaries)
+                sup_monthly = sum((s / 12) * (chosen_pct / 100) for s in supervisor_salaries)
                 prisoner_monthly = num_prisoners * prisoner_salary * 4.33
                 overhead_per_prisoner = (total / num_prisoners) if num_prisoners > 0 else 0
                 for name, assigned, mins, secs in items:
-                    total_mins = mins + secs/60
-                    max_units = (assigned * workshop_hours * 60 * 4.33) / max(total_mins,0.01)
+                    total_mins = mins + secs / 60
+                    max_units = (assigned * workshop_hours * 60 * 4.33) / max(total_mins, 0.01)
                     share_costs = overhead_per_prisoner * assigned
-                    unit_cost = (sup_monthly + prisoner_monthly + share_costs)/max(max_units,1)
-                    min_units = share_costs / max(unit_cost,0.01)
+                    unit_cost = (sup_monthly + prisoner_monthly + share_costs) / max(max_units, 1)
+                    min_units = share_costs / max(unit_cost, 0.01)
                     production_results[name] = {
-                        "Unit cost": round(unit_cost,2),
+                        "Unit cost": round(unit_cost, 2),
                         "Max units/month": int(max_units),
                         "Min units/month to cover costs": int(min_units)
                     }
 
             # Generate PDF
             quote_num = f"HMPPS{st.session_state['quote_counter']:04d}"
-            st.session_state["quote_counter"] +=1
+            st.session_state["quote_counter"] += 1
             pdf_buffer = generate_pdf(
                 quote_num, region, prison_name, customer_name, workshop_mode, breakdown,
                 production_results, supervisor_justification
@@ -266,7 +266,7 @@ def costing_tool():
             st.success(f"Quote {quote_num} generated and would be emailed to customer with CC Dan.smith1@justice.gov.uk ✅")
             st.download_button("Download PDF", pdf_buffer, file_name=f"{quote_num}.pdf")
 
-            # Log out
+            # Exit / log out
             st.session_state["logged_in"] = False
             st.session_state["current_user"] = None
             st.experimental_rerun()
