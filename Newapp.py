@@ -154,7 +154,7 @@ def validate_inputs():
 # ------------------------------
 def calculate_host_costs():
     breakdown = {}
-    weeks_to_month = 12/52  # conversion factor from weekly → monthly
+    weeks_to_month = 12/52
 
     # Labour
     breakdown["Prisoner wages"] = num_prisoners * prisoner_salary * weeks_to_month
@@ -210,9 +210,7 @@ if st.button("Calculate Costs"):
         weeks_to_month = 12/52
         month_to_weeks = 52/12
 
-        # ------------------------------
         # HOST COSTS
-        # ------------------------------
         if workshop_mode == "Host":
             host_breakdown, host_total = calculate_host_costs()
             st.subheader("Host Workshop Costs")
@@ -220,9 +218,7 @@ if st.button("Calculate Costs"):
                 st.write(f"{k}: £{v:,.2f}")
             st.write(f"**Total Monthly Cost: £{host_total:,.2f}**")
 
-        # ------------------------------
         # PRODUCTION COSTS
-        # ------------------------------
         elif workshop_mode == "Production" and production_items:
             st.subheader("Production Item Costs")
             sup_monthly = sum([(s / 12) * (chosen_pct / 100) for s in supervisor_salaries])
@@ -230,15 +226,21 @@ if st.button("Calculate Costs"):
 
             for name, workers_needed, mins_per_unit, prisoners_on_item in production_items:
                 # Convert weekly hours to monthly available minutes
-                available_minutes = prisoners_on_item * workshop_hours * 60 * weeks_to_month
-                max_units_per_month = available_minutes / mins_per_unit if mins_per_unit > 0 else 0
+                available_minutes_per_month = prisoners_on_item * workshop_hours * 60 * weeks_to_month
+                max_units_per_month = available_minutes_per_month / mins_per_unit if mins_per_unit > 0 else 0
                 max_units_per_week = max_units_per_month * month_to_weeks
 
                 total_cost_monthly = sup_monthly + prisoner_monthly
-                unit_cost = round(total_cost_monthly / max(max_units_per_month, 1), 2) if max_units_per_month > 0 else 0
-                min_items_per_week = round((total_cost_monthly * month_to_weeks) / unit_cost, 1) if unit_cost > 0 else 0
+                unit_cost = total_cost_monthly / max(max_units_per_month, 1) if max_units_per_month > 0 else 0
+
+                # Weekly total cost
+                weekly_total_cost = total_cost_monthly * month_to_weeks
+                min_items_per_week = round(weekly_total_cost / unit_cost, 1) if unit_cost > 0 else 0
+
+                # Ensure minimum does not exceed maximum
+                min_items_per_week = min(min_items_per_week, max_units_per_week)
 
                 st.write(f"**Item: {name}**")
-                st.write(f"- Unit Cost (£): £{unit_cost}")
-                st.write(f"- Minimum items needed per week to cover costs: {min_items_per_week}")
-                st.write(f"- Maximum number of items that can be made per week: {int(max_units_per_week)}")
+                st.write(f"- Unit Cost (£): £{unit_cost:,.2f}")
+                st.write(f"- Minimum items needed per week to cover costs: {min_items_per_week:,.1f}")
+                st.write(f"- Maximum number of items that can be produced per week: {max_units_per_week:,.1f}")
