@@ -193,8 +193,52 @@ def calculate_production_items(items):
 # ------------------------------
 def display_gov_table(breakdown, total_label="Total Monthly Cost"):
     html_table = "<table style='width:100%; border-collapse: collapse;'>"
-    html_table += "<thead><tr style='background-color:#f3f2f1; text-align:left;'><th style='padding:8px; border-bottom: 2px solid #b1b4b6;'>Cost Item</th><th style='padding:8px; border-bottom: 2px solid #b1b4b6;'>Amount (£)</th></tr></thead><tbody>"
+    html_table += (
+        "<thead><tr style='background-color:#f3f2f1; text-align:left;'>"
+        "<th style='padding:8px; border-bottom: 2px solid #b1b4b6;'>Cost Item</th>"
+        "<th style='padding:8px; border-bottom: 2px solid #b1b4b6;'>Amount (£)</th>"
+        "</tr></thead><tbody>"
+    )
     for k, v in breakdown.items():
-        html_table += f"<tr style='border-bottom:1px solid #e1e1e1;'><td style='padding:8px;'>{k}</td><td style='padding:8px;'>£{v:,.2f}</td></tr>"
+        html_table += (
+            f"<tr style='border-bottom:1px solid #e1e1e1;'>"
+            f"<td style='padding:8px;'>{k}</td>"
+            f"<td style='padding:8px;'>£{v:,.2f}</td>"
+            "</tr>"
+        )
+
     total_value = sum(breakdown.values())
-    html_table += f"<tr style='font-weight:bold; background-color:#e6f0fa;'><td style='padding:8px;'>{total_label}</td><td style='padding:8px;'>
+    html_table += (
+        f"<tr class='total-row'>"
+        f"<td style='padding:8px;'>{total_label}</td>"
+        f"<td style='padding:8px;'>£{total_value:,.2f}</td>"
+        "</tr>"
+    )
+    html_table += "</tbody></table>"
+
+    st.markdown(html_table, unsafe_allow_html=True)
+
+# ------------------------------
+# RUN CALCULATIONS ON BUTTON CLICK
+# ------------------------------
+if st.button("Generate Costing"):
+    errors = validate_inputs()
+    if errors:
+        st.error("⚠️ Please fix the following before continuing:")
+        for e in errors:
+            st.write(f"- {e}")
+    else:
+        if workshop_mode == "Host":
+            breakdown, total = calculate_host_costs()
+            st.subheader("Host Contract Costing")
+            display_gov_table(breakdown, "Total Monthly Cost")
+        elif workshop_mode == "Production":
+            st.subheader("Production Contract Costing")
+            st.info("Enter items to calculate costs. Example provided below.")
+            # Example production items (you can replace with st.data_editor or st.text_input loop)
+            sample_items = [
+                ("Chair", 5, 30, 10),
+                ("Table", 3, 60, 8),
+            ]
+            results = calculate_production_items(sample_items)
+            st.table(results)
