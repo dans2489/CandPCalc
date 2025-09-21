@@ -50,7 +50,7 @@ unit_costs = {"electric": 0.257, "gas": 0.063, "water": 2.47}  # £/kWh or £/m�
 # INPUTS
 # ------------------------------
 region = st.selectbox("Region?", ["Select", "National", "Inner London", "Outer London"], index=0)
-prison_name = st.text_input("Prison Name")  # mandatory field
+prison_name = st.text_input("Prison Name")
 customer_type = st.radio("Quote for a?", ["Select", "Commercial", "Another Government Department"], index=0)
 customer_name = st.text_input("Customer?")
 workshop_mode = st.radio("Contract type?", ["Select", "Host", "Production"], index=0)
@@ -95,7 +95,7 @@ if customer_type == "Commercial":
             dev_charge = 0.20
         elif support in ["Employment on release and/or RoTL", "Post release support"]:
             dev_charge = 0.10
-        else:  # Both
+        else:
             dev_charge = 0.0
 
 # ------------------------------
@@ -154,9 +154,10 @@ def validate_inputs():
 # ------------------------------
 def calculate_host_costs():
     breakdown = {}
-    
+    weeks_to_month = 12/52  # conversion factor from weekly → monthly
+
     # Labour
-    breakdown["Prisoner wages"] = num_prisoners * prisoner_salary * 4.33
+    breakdown["Prisoner wages"] = num_prisoners * prisoner_salary * weeks_to_month
     supervisor_cost = sum((s / 12) * (chosen_pct / 100) for s in supervisor_salaries)
     breakdown["Supervisors"] = supervisor_cost
 
@@ -166,7 +167,8 @@ def calculate_host_costs():
         breakdown["Electricity (£)"] = area * (util["electric"] / 12) * unit_costs["electric"]
         breakdown["Gas (£)"] = area * (util["gas"] / 12) * unit_costs["gas"]
         breakdown["Water (£)"] = area * (util["water"] / 12) * unit_costs["water"]
-# Fixed Administration and Maintenance
+
+    # Fixed Administration and Maintenance
     breakdown["Administration (£)"] = 150
     breakdown["Maintenance / Depreciation (£)"] = area * 0.50
 
@@ -205,28 +207,38 @@ if st.button("Calculate Costs"):
         for err in errors:
             st.write(f"- {err}")
     else:
-        # Host Workshop Costs
-        host_breakdown, host_total = calculate_host_costs()
-        st.subheader("Host Workshop Costs")
-        for k, v in host_breakdown.items():
-            st.write(f"{k}: £{v:,.2f}")
-        st.write(f"**Total Monthly Cost: £{host_total:,.2f}**")
+        weeks_to_month = 12/52
+        month_to_weeks = 52/12
 
-        # Production Costs
-        if workshop_mode == "Production" and production_items:
+        # ------------------------------
+        # HOST COSTS
+        # ------------------------------
+        if workshop_mode == "Host":
+            host_breakdown, host_total = calculate_host_costs()
+            st.subheader("Host Workshop Costs")
+            for k, v in host_breakdown.items():
+                st.write(f"{k}: £{v:,.2f}")
+            st.write(f"**Total Monthly Cost: £{host_total:,.2f}**")
+
+        # ------------------------------
+        # PRODUCTION COSTS
+        # ------------------------------
+        elif workshop_mode == "Production" and production_items:
             st.subheader("Production Item Costs")
             sup_monthly = sum([(s / 12) * (chosen_pct / 100) for s in supervisor_salaries])
-            prisoner_monthly = num_prisoners * prisoner_salary * 4.33
+            prisoner_monthly = num_prisoners * prisoner_salary * weeks_to_month
 
             for name, workers_needed, mins_per_unit, prisoners_on_item in production_items:
-                available_minutes = prisoners_on_item * workshop_hours * 60 * 4.33
-                max_units = available_minutes / mins_per_unit if mins_per_unit > 0 else 0
-                total_cost = sup_monthly + prisoner_monthly
-                unit_cost = round(total_cost / max(max_units, 1), 2) if max_units > 0 else 0
-                weekly_units_needed = round((total_cost / 4.33) / unit_cost, 1) if unit_cost > 0 else 0
+                # Convert weekly hours to monthly available minutes
+                available_minutes = prisoners_on_item * workshop_hours * 60 * weeks_to_month
+                max_units_per_month = available_minutes / mins_per_unit if mins_per_unit > 0 else 0
+                max_units_per_week = max_units_per_month * month_to_weeks
+
+                total_cost_monthly = sup_monthly + prisoner_monthly
+                unit_cost = round(total_cost_monthly / max(max_units_per_month, 1), 2) if max_units_per_month > 0 else 0
+                min_items_per_week = round((total_cost_monthly * month_to_weeks) / unit_cost, 1) if unit_cost > 0 else 0
 
                 st.write(f"**Item: {name}**")
                 st.write(f"- Unit Cost (£): £{unit_cost}")
-                st.write(f"- Max Units/Month: {int(max_units)}")
-                st.write(f"- Units Needed/Week to Cover Costs: {weekly_units_needed}")
-    
+                st.write(f"- Minimum items needed per week to cover costs: {min_items_per_week}")
+                st.write(f"- Maximum number of items that can be made per week: {int(max_units_per_week)}")
