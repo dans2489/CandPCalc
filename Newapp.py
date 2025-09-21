@@ -3,7 +3,6 @@ import streamlit as st
 # ------------------------------
 # PAGE CONFIG
 # ------------------------------
-# Set title and layout of the Streamlit app
 st.set_page_config(
     page_title="Prison Workshop Costing Tool",
     layout="centered",
@@ -12,7 +11,6 @@ st.set_page_config(
 # ------------------------------
 # CUSTOM CSS FOR GOV STYLE
 # ------------------------------
-# This is purely styling to mimic government website look
 st.markdown("""
 <style>
 .main { background-color: #ffffff; color: #0b0c0c; }
@@ -32,7 +30,7 @@ table tr.total-row { font-weight: bold; background-color: #e6f0fa; }
 # ------------------------------
 # APP TITLE
 # ------------------------------
-st.title("Cost and Price Calculator")
+st.title("Prison Workshop Costing Tool")
 
 # ------------------------------
 # WORKSHOP TYPE UTILITIES (Commercial Rates)
@@ -191,18 +189,19 @@ def calculate_host_costs():
 
 # ------------------------------
 # PRODUCTION ITEMS INPUT (DYNAMIC)
+# Only show if Production mode is selected
 # ------------------------------
-st.subheader("Production Items")
-num_items = st.number_input("How many different items will be produced?", min_value=0, value=0, step=1)
 production_items = []
-
-for i in range(num_items):
-    st.markdown(f"**Item {i+1}**")
-    name = st.text_input(f"Item {i+1} Name", key=f"name_{i}")
-    workers_needed = st.number_input(f"Number of prisoners needed for {name}", min_value=0, value=1, key=f"workers_{i}")
-    mins_per_unit = st.number_input(f"Minutes to produce one unit of {name}", min_value=1, value=60, key=f"mins_{i}")
-    prisoners_on_item = st.number_input(f"Number of prisoners working on {name}", min_value=1, value=workers_needed, key=f"prisoners_{i}")
-    production_items.append((name, workers_needed, mins_per_unit, prisoners_on_item))
+if workshop_mode == "Production":
+    st.subheader("Production Items")
+    num_items = st.number_input("How many different items will be produced?", min_value=0, value=0, step=1)
+    for i in range(num_items):
+        st.markdown(f"**Item {i+1}**")
+        name = st.text_input(f"Item {i+1} Name", key=f"name_{i}")
+        workers_needed = st.number_input(f"Number of prisoners needed for {name}", min_value=0, value=1, key=f"workers_{i}")
+        mins_per_unit = st.number_input(f"Minutes to produce one unit of {name}", min_value=1, value=60, key=f"mins_{i}")
+        prisoners_on_item = st.number_input(f"Number of prisoners working on {name}", min_value=1, value=workers_needed, key=f"prisoners_{i}")
+        production_items.append((name, workers_needed, mins_per_unit, prisoners_on_item))
 
 # ------------------------------
 # DISPLAY COSTS
@@ -246,5 +245,3 @@ if st.button("Calculate Costs"):
                 min_items_per_week = round(weekly_total_cost / unit_cost, 1) if unit_cost > 0 else 0
 
                 st.write(f"**Item: {name}**")
-                st.write(f"- Unit Cost (£): £{unit_cost:,.2f}")
-                st.write(f"- Minimum items needed per week to cover costs: {min_items_per_week:,.1f}")
