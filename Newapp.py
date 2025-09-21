@@ -1,4 +1,7 @@
 import streamlit as st
+from PIL import Image
+import requests
+from io import BytesIO
 
 # ------------------------------
 # PAGE CONFIG
@@ -7,6 +10,14 @@ st.set_page_config(
     page_title="Prison Workshop Costing Tool",
     layout="centered",
 )
+
+# ------------------------------
+# LOGO TOP LEFT
+# ------------------------------
+logo_url = "https://futures-network.org.uk/wp-content/uploads/2022/12/futures-network-logo.png"
+response = requests.get(logo_url)
+logo = Image.open(BytesIO(response.content))
+st.image(logo, width=150)
 
 # ------------------------------
 # CUSTOM CSS FOR GOV STYLE
@@ -30,7 +41,7 @@ table tr.total-row { font-weight: bold; background-color: #e6f0fa; }
 # ------------------------------
 # APP TITLE
 # ------------------------------
-st.title("Prison Workshop Costing Tool")
+st.title("Cost and Price Calculator")
 
 # ------------------------------
 # WORKSHOP TYPE UTILITIES (Commercial Rates)
@@ -43,7 +54,6 @@ workshop_utilities = {
     "Packing": {"electric": 50, "gas": 25, "water": 0.55},
     "Empty space (no machinery)": {"electric": 10, "gas": 5, "water": 0.55},
 }
-
 unit_costs = {"electric": 0.257, "gas": 0.063, "water": 2.47}  # £ per kWh or £ per m³
 
 # ------------------------------
@@ -79,6 +89,13 @@ for i in range(num_supervisors):
     supervisor_salaries.append(sup_salary)
 
 contracts = st.number_input("How many contracts do these supervisors oversee?", min_value=0, value=0)
+
+# ------------------------------
+# CUSTOMER PAYS SUPERVISOR?
+# ------------------------------
+customer_pays_supervisor = False
+if customer_type == "Commercial" and num_supervisors > 0:
+    customer_pays_supervisor = st.checkbox("Customer pays for supervisor(s)?", value=False)
 
 # ------------------------------
 # EMPLOYMENT SUPPORT (Commercial)
@@ -145,8 +162,8 @@ def calculate_host_costs():
     # Prisoner wages
     breakdown["Prisoner wages"] = num_prisoners * prisoner_salary * weeks_to_month
 
-    # Supervisor cost
-    supervisor_cost = sum((s / 12) * (chosen_pct / 100) for s in supervisor_salaries)
+    # Supervisor cost only if customer does not pay
+    supervisor_cost = 0 if customer_pays_supervisor else sum((s / 12) * (chosen_pct / 100) for s in supervisor_salaries)
     breakdown["Supervisors"] = supervisor_cost
 
     # Utilities
@@ -206,7 +223,7 @@ if st.button("Calculate Costs"):
         # PRODUCTION
         elif workshop_mode == "Production" and production_items:
             st.subheader("Production Item Costs")
-            total_supervisor_cost = sum([(s / 12) * (chosen_pct / 100) for s in supervisor_salaries])
+            total_supervisor_cost = 0 if customer_pays_supervisor else sum([(s / 12) * (chosen_pct / 100) for s in supervisor_salaries])
 
             for name, workers_needed, mins_per_unit, prisoners_on_item in production_items:
                 # Available minutes
