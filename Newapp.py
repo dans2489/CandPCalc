@@ -219,29 +219,19 @@ if st.button("Generate Costing"):
 
         elif workshop_mode == "Production":
             st.subheader("Production Contract Costing")
-            st.info("Enter production items below:")
 
-            # Empty table for user input
-            empty_df = pd.DataFrame(
-                columns=["Item", "Workers Needed", "Minutes per Unit", "Prisoners Assigned"]
-            )
-            edited_df = st.data_editor(
-                empty_df,
-                num_rows="dynamic",
-                use_container_width=True,
-                key="production_items",
-            )
+            num_items = st.number_input("How many different products are produced?", min_value=1, value=1, step=1)
 
-            items = [
-                (
-                    row["Item"],
-                    int(row["Workers Needed"]),
-                    float(row["Minutes per Unit"]),
-                    int(row["Prisoners Assigned"]),
-                )
-                for _, row in edited_df.iterrows()
-                if row["Item"] and row["Minutes per Unit"] > 0
-            ]
+            items = []
+            for i in range(int(num_items)):
+                st.markdown(f"### Product {i+1}")
+                name = st.text_input(f"Name of product {i+1}", key=f"name_{i}")
+                workers_needed = st.number_input(f"Workers needed for {name or f'Product {i+1}'}", min_value=0, step=1, key=f"workers_{i}")
+                mins_per_unit = st.number_input(f"Minutes per unit for {name or f'Product {i+1}'}", min_value=0.0, step=1.0, key=f"mins_{i}")
+                prisoners_on_item = st.number_input(f"Prisoners assigned to {name or f'Product {i+1}'}", min_value=0, step=1, key=f"pris_{i}")
+
+                if name and mins_per_unit > 0:
+                    items.append((name, workers_needed, mins_per_unit, prisoners_on_item))
 
             if items:
                 sup_monthly = sum([(s / 12) * (chosen_pct / 100) for s in supervisor_salaries])
@@ -255,4 +245,4 @@ if st.button("Generate Costing"):
                 html_table += "</tbody></table>"
                 st.markdown(html_table, unsafe_allow_html=True)
             else:
-                st.warning("⚠️ Please enter at least one valid item to calculate costs.")
+                st.warning("⚠️ Please enter at least one valid product.")
