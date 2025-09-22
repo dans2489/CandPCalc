@@ -44,7 +44,7 @@ table tr.total-row { font-weight: bold; background-color: #e6f0fa; }
 # ------------------------------
 # TITLE
 # ------------------------------
-st.title("Cost and Price Calculator")
+st.title("Cost and Pricing Calculator")
 
 # ------------------------------
 # RESET BUTTON
@@ -195,33 +195,42 @@ def display_table(breakdown, total_label="Total Monthly Cost"):
 # ------------------------------
 # GENERATE COSTS
 # ------------------------------
-if st.button("Generate Costs"):
-    errors = validate_inputs()
-    if errors:
-        st.error("Fix errors:\n- " + "\n- ".join(errors))
-    else:
-        if workshop_mode=="Host":
+if workshop_mode=="Host":
+    if st.button("Generate Costs"):
+        errors = validate_inputs()
+        if errors:
+            st.error("Fix errors:\n- " + "\n- ".join(errors))
+        else:
             st.subheader("Host Contract Costs")
             breakdown,total = calculate_host_costs()
             display_table(breakdown)
-        elif workshop_mode=="Production":
-            st.subheader("Production Contract Costs")
-            num_items = st.number_input("Number of items produced?", min_value=1, value=1)
-            items=[]
-            for i in range(num_items):
-                with st.expander(f"Item {i+1} details"):
-                    name = st.text_input(f"Item {i+1} Name", key=f"name_{i}")
-                    prisoners_per_item = st.number_input(f"Prisoners required per unit", min_value=1, key=f"per_unit_{i}")
-                    minutes_per_item = st.number_input(f"Minutes per unit", min_value=1.0, key=f"mins_{i}")
-                    prisoners_assigned = st.number_input(f"Prisoners assigned to this item", min_value=1, max_value=num_prisoners, key=f"assigned_{i}")
-                    items.append({"name":name,"prisoners":prisoners_per_item,"minutes":minutes_per_item,"assigned":prisoners_assigned})
-            if st.button("Calculate Production Costs"):
-                results = calculate_production(items)
-                for r in results:
-                    st.write(f"**{r['Item']}**")
-                    st.write(f"- Unit Cost (£): £{r['Unit Cost (£)']:.2f}")
-                    st.write(f"- Minimum units/week to cover costs: {r['Min Units/Week']}")
-                    st.write(f"- Maximum units/week: {r['Max Units/Week']}")
-                    percent = st.slider(f"Output % for {r['Item']}", min_value=0, max_value=100, value=100)
-                    adjusted_units = round(r['Max Units/Week']*percent/100,0)
-                    st.write(f"- Adjusted units/week at {percent}% output: {adjusted_units}")
+
+elif workshop_mode=="Production":
+    st.subheader("Production Contract Costs")
+    num_items = st.number_input("Number of items produced?", min_value=1, value=1)
+    items=[]
+    for i in range(num_items):
+        with st.expander(f"Item {i+1} details"):
+            name = st.text_input(f"Item {i+1} Name", key=f"name_{i}")
+            minutes_per_item = st.number_input(f"Minutes per unit", min_value=1.0, key=f"mins_{i}")
+            prisoners_assigned = st.number_input(f"Prisoners assigned to this item", min_value=1, max_value=num_prisoners, key=f"assigned_{i}")
+            items.append({
+                "name": name,
+                "minutes": minutes_per_item,
+                "assigned": prisoners_assigned
+            })
+
+    if st.button("Calculate Production Costs"):
+        errors = validate_inputs()
+        if errors:
+            st.error("Fix errors:\n- " + "\n- ".join(errors))
+        else:
+            results = calculate_production(items)
+            for r in results:
+                st.write(f"**{r['Item']}**")
+                st.write(f"- Unit Cost (£): £{r['Unit Cost (£)']:.2f}")
+                st.write(f"- Minimum units/week to cover costs: {r['Min Units/Week']}")
+                st.write(f"- Maximum units/week: {r['Max Units/Week']}")
+                percent = st.slider(f"Output % for {r['Item']}", min_value=0, max_value=100, value=100, key=f"percent_{r['Item']}")
+                adjusted_units = round(r['Max Units/Week']*percent/100,0)
+                st.write(f"- Adjusted units/week at {percent}% output: {adjusted_units}")
