@@ -1,16 +1,19 @@
 # Cost and Price Calculator — Streamlit app
-# v2.7 (2025-09-22)
+# v2.8 (2025-09-22)
 # Changes:
-# - Removed blue header bar; title now NFN blue text on plain background.
-# - Fixed summary rendering: use components.html to prevent escaped <tr>/<td> in output.
-# - Reset App button remains red; other buttons remain GOV.UK green.
-# - Depreciation/Maintenance labeled "(estimated)" in summary.
-# - Host vs Production separation, VAT logic, no Excel (CSV + PDF-HTML only).
+# - "Supervisor Time Allocation" -> "Instructor Time Allocation".
+# - If allocation slider < recommended: warning + free text + choose "Set new" (requires reason) or "Keep recommended".
+# - Employment support dev charge now applied to OVERHEADS (not supervisors):
+#     None=20%, Employment on Release/RoTL=10%, Post release=10%, Both=0%.
+#   Summary shows baseline (20%), reduction, and applied dev charge. If £0, green highlight.
+# - Title NFN blue on plain background; Reset red, other buttons green.
+# - Summary rendered as real HTML (no escaped <tr>).
+# - Depreciation/Maintenance labeled "(estimated)" where shown.
+# - Host vs Production separation; VAT logic unchanged; Excel removed (CSV + PDF-ready HTML only).
 
 from io import BytesIO
 import pandas as pd
 import streamlit as st
-import math
 
 # -----------------------------
 # Page config + minimal theming
@@ -101,7 +104,7 @@ EUI_MAP = {
     "High energy process":     {"electric_kwh_m2_y": 60, "gas_kwh_m2_y": 100},
 }
 
-# Full Prison → Region mapping
+# Full Prison → Region mapping (same as before)
 PRISON_TO_REGION = {
     "Altcourse": "National", "Ashfield": "National", "Askham Grange": "National",
     "Aylesbury": "National", "Bedford": "National", "Belmarsh": "Inner London",
@@ -162,7 +165,7 @@ with st.sidebar:
     )
     water_rate = st.number_input(
         "Water tariff (€/£ per m³)",
-        min_value=0.0, value=WATER_RATE_DEFAULT, step=0.10, format="%.2f"
+        min_value=0.0, value=2.00, step=0.10, format="%.2f"
     )
 
     st.markdown("---")
@@ -189,7 +192,7 @@ with st.sidebar:
 # -------------
 # Base inputs
 # -------------
-st.subheader("Inputs")
+st.subheader("")
 
 prisons_sorted = ["Select"] + sorted(PRISON_TO_REGION.keys())
 prison_choice = st.selectbox("Prison Name", prisons_sorted, index=0)
@@ -208,11 +211,7 @@ SIZE_LABELS = [
     "Large (~10,000 ft²)",
     "Enter dimensions in ft",
 ]
-size_map = {
-    "Small (~2,500 ft², ~50×50 ft)": 2500,
-    "Medium (~5,000 ft²)": 5000,
-    "Large (~10,000 ft²)": 10000,
-}
+size_map = {"Small (~2,500 ft², ~50×50 ft)": 2500, "Medium (~5,000 ft²)": 5000, "Large (~10,000 ft²)": 10000}
 workshop_size = st.selectbox("Workshop size (sq ft)?", SIZE_LABELS)
 
 if workshop_size == "Enter dimensions in ft":
@@ -234,7 +233,7 @@ workshop_hours = st.number_input("How many hours per week is it open? (for produ
 num_prisoners = st.number_input("How many prisoners employed?", min_value=0, step=1)
 prisoner_salary = st.number_input("Prisoner salary per week (£)", min_value=0.0, format="%.2f")
 
-# Supervisors
+# Supervisors (kept label in costs; only the time allocation section is renamed per request)
 num_supervisors = st.number_input("How many supervisors?", min_value=0, step=1)
 customer_covers_supervisors = st.checkbox("Customer provides supervisor(s)?")
 
@@ -248,14 +247,34 @@ if not customer_covers_supervisors:
         supervisor_salaries.append(sup_salary)
     contracts = st.number_input("How many contracts do these supervisors oversee?", min_value=1, value=1)
     recommended_pct = round((workshop_hours / 37.5) * (1 / contracts) * 100, 1) if contracts and workshop_hours >= 0 else 0
-    st.subheader("Supervisor Time Allocation")
+
+    # --- Instructor Time Allocation (UI label only) ---
+    st.subheader("Instructor Time Allocation")
     st.info(f"Recommended: {recommended_pct}%")
-    chosen_pct = st.slider("Adjust supervisor % allocation", 0, 100, int(recommended_pct), key="chosen_pct")
+    chosen_pct = st.slider("Adjust instructor % allocation", 0, 100, int(recommended_pct), key="chosen_pct")
+
+    # If less than recommended: warning + explanation + choose action
+    effective_pct = int(chosen_pct)
+    if chosen_pct < int(round(recommended_pct)):
+        st.warning("You have selected less than recommended — please explain why here.")
+        reason = st.text_area("Reason for using a lower allocation", key="alloc_reason")
+        action = st.radio("Apply allocation", ["Keep recommended", "Set new"], index=0, horizontal=True, key="alloc_action")
+        if action == "Set new":
+            if not str(reason).strip():
+                st.error("Please provide a brief explanation before setting a lower allocation.")
+                effective_pct = int(round(recommended_pct))
+            else:
+                effective_pct = int(chosen_pct)
+        else:
+            effective_pct = int(round(recommended_pct))
+    else:
+        effective_pct = int(chosen_pct)
 else:
     chosen_pct = 0
+    effective_pct = 0  # no internal supervisors to allocate
 
-# Development charge (Commercial only)
-dev_charge = 0.0
+# Employment support → development charge rate applied to OVERHEADS
+dev_rate = 0.0
 support = "Select"
 if customer_type == "Commercial":
     support = st.selectbox(
@@ -263,11 +282,11 @@ if customer_type == "Commercial":
         ["Select", "None", "Employment on release/RoTL", "Post release", "Both"]
     )
     if support == "None":
-        dev_charge = 0.20
+        dev_rate = 0.20
     elif support in ["Employment on release/RoTL", "Post release"]:
-        dev_charge = 0.10
+        dev_rate = 0.10
     elif support == "Both":
-        dev_charge = 0.0
+        dev_rate = 0.0
 
 # Pricing (Commercial): VAT only
 st.markdown("---")
@@ -279,7 +298,7 @@ with colp2:
     vat_rate = st.number_input("VAT rate %", min_value=0.0, max_value=100.0, value=20.0, step=0.5, format="%.1f")
 
 st.caption(
-    "Pricing: Unit Cost includes labour + apportioned supervisors + apportioned overheads. "
+    "Unit pricing: Unit Cost includes labour + apportioned supervisors + apportioned overheads. "
     "No margin control: Unit Price ex VAT = Unit Cost. "
     "If VAT is ticked and customer is Commercial, Unit Price inc VAT = ex VAT × (1 + VAT%)."
 )
@@ -377,7 +396,7 @@ def calculate_host_costs():
     # Supervisors apportioned to this contract (per month) — not estimated
     supervisor_cost = 0.0
     if not customer_covers_supervisors:
-        supervisor_cost = sum((s / 12) * (chosen_pct / 100) for s in supervisor_salaries)
+        supervisor_cost = sum((s / 12) * (effective_pct / 100) for s in supervisor_salaries)
     breakdown["Supervisors"] = supervisor_cost
 
     # Overheads (utilities estimated; admin not; maintenance estimated)
@@ -390,20 +409,36 @@ def calculate_host_costs():
 
     if maint_method.startswith("£/m² per year"):
         rate = st.session_state.get("maint_rate_per_m2_y", 15.0)
-        breakdown["Depreciation/Maintenance (estimated)"] = (rate * area_m2) / 12.0
+        maint_val = (rate * area_m2) / 12.0
     else:
-        breakdown["Depreciation/Maintenance (estimated)"] = maint_monthly
+        maint_val = maint_monthly
+    breakdown["Depreciation/Maintenance (estimated)"] = maint_val
 
-    # Development charge (Commercial only). If £0, explicitly note reduction.
+    # --- Development charge on OVERHEADS (Commercial only) ---
+    # Overheads subtotal for dev charge basis:
+    overheads_subtotal = elec_m + gas_m + water_m + admin_monthly + maint_val
+
+    dev_baseline_rate = 0.20  # baseline for "None"
+    dev_baseline_amount = overheads_subtotal * dev_baseline_rate
+
     if customer_type == "Commercial":
-        dev_amount = supervisor_cost * dev_charge
-        if dev_charge == 0.0:
-            breakdown["Development charge — reduced to £0 due to support offered"] = 0.0
-        else:
-            breakdown["Development charge"] = dev_amount
-    else:
-        breakdown["Development charge"] = 0.0
+        dev_applied_rate = dev_rate  # from support selection
+        dev_applied_amount = overheads_subtotal * dev_applied_rate
+        reduction_amount = max(dev_baseline_amount - dev_applied_amount, 0.0)
 
+        # Show baseline and reduction lines when support != "None" (or "Both")
+        breakdown["Development charge baseline (20% of overheads)"] = dev_baseline_amount
+        if reduction_amount > 0:
+            breakdown["Support reduction (employment support)"] = -reduction_amount
+        breakdown["Development charge (applied)"] = dev_applied_amount
+
+        # Visual highlight when £0
+        if dev_applied_amount == 0:
+            st.success("Development charge has been **reduced to £0** due to the **support offered**.")
+    else:
+        breakdown["Development charge (applied)"] = 0.0
+
+    # Totals & VAT
     subtotal = sum(breakdown.values())
     vat_amount = (subtotal * (vat_rate / 100.0)) if (customer_type == "Commercial" and apply_vat) else 0.0
     grand_total = subtotal + vat_amount
@@ -427,7 +462,7 @@ def calculate_production(items: list[dict], output_percents: list[int], apportio
     """
     overheads_weekly, _detail = weekly_overheads_total()
     sup_weekly_total = (
-        sum((s / 52) * (chosen_pct / 100) for s in supervisor_salaries)
+        sum((s / 52) * (effective_pct / 100) for s in supervisor_salaries)
         if not customer_covers_supervisors else 0.0
     )
 
@@ -516,7 +551,6 @@ def _host_table_html(breakdown: dict, totals: dict, total_label="Total Monthly C
     if totals:
         rows_html.append(f"<tr><td>VAT ({totals.get('VAT %',0):.1f}%)</td><td>{_currency(totals.get('VAT (£)',0))}</td></tr>")
         rows_html.append(f"<tr><td>Grand Total (£/month)</td><td>{_currency(totals.get('Grand Total (£/month)',0))}</td></tr>")
-    # basic style to keep it consistent even inside iframe
     style = """
       <style>
         table { width:100%; border-collapse:collapse; margin: 0.5rem 0 1rem 0; font-family: Arial, Helvetica, sans-serif; }
@@ -536,7 +570,6 @@ def _host_table_html(breakdown: dict, totals: dict, total_label="Total Monthly C
 def display_table(breakdown: dict, totals: dict, total_label="Total Monthly Cost"):
     """Render as true HTML to avoid escaped <tr>/<td> text."""
     html = _host_table_html(breakdown, totals, total_label)
-    # Height heuristic: header + (rows * 40px)
     rows = 1 + len(breakdown) + (2 if totals else 0)
     height = 80 + int(rows * 40)
     st.components.v1.html(html, height=height, scrolling=False)
@@ -608,12 +641,8 @@ if workshop_mode == "Host":
         if errors:
             st.error("Fix errors:\n- " + "\n- ".join(errors))
         else:
-            # Summary wording only; plain text
             st.subheader(f"Host Contract for {customer_name} Costs are per month.")
             breakdown, totals = calculate_host_costs()
-
-            if customer_type == "Commercial" and dev_charge == 0.0:
-                st.success("Development charge has been **reduced to £0** due to the **support offered**.")
 
             # Render HTML table (no escaping)
             display_table(breakdown, totals)
