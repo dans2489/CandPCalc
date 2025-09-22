@@ -47,7 +47,7 @@ table tr.total-row { font-weight: bold; background-color: #e6f0fa; }
 # ------------------------------
 # TITLE
 # ------------------------------
-st.title("Prison Workshop Costing Tool")
+st.title("Cost and Price Calculator ")
 
 # ------------------------------
 # INPUTS
