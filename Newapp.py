@@ -1,12 +1,15 @@
 # Cost and Price Calculator — Streamlit app
-# v3.0 (2025-09-22)
-# Changes this version:
-# - Instructor (Supervisor) salary input switched to Title selection using Avg Total by Region.
-# - Region auto-detected from Prison; title list filtered by region.
-# - Keeps all prior behaviors: NFN blue title, Host heading "(costs are per month)",
-#   Grand Total emphasis, reductions in red, maintenance default £8/m²/yr, Reset Selections at footer (red),
-#   Instructor Time Allocation workflow (warning & reason when below recommended),
-#   Development % on OVERHEADS with baseline/reduction/applied lines, true-HTML summary, no Excel.
+# v3.1 (2025-09-22)
+# Changes for Dan:
+# - Grand Total row now uses the same grey background style as the table header (no bold).
+# - Reductions (negative values) shown in red (both on-screen and in exported HTML).
+# - All costs in screen summary and exported HTML are formatted as GBP with 2 decimals (e.g., £1,993.33).
+# - Retains: NFN blue title, Host heading "(costs are per month)", footer "Reset Selections" (red),
+#   Instructor Time Allocation flow (warning + reason when below recommended),
+#   support % on OVERHEADS (baseline/reduction/applied lines),
+#   maintenance default £8/m²/year,
+#   instructor titles per region using Avg Total,
+#   true-HTML summary (no escaped <tr>).
 
 from io import BytesIO
 import pandas as pd
@@ -28,7 +31,7 @@ GOV_GREEN_DARK = "#005A30"
 GOV_RED = "#D4351C"
 GOV_RED_DARK = "#942514"
 
-# Minimal CSS: NFN-blue title, green action buttons, red reset footer, table emphasis.
+# Minimal CSS: NFN-blue title, green buttons, red reset footer, table emphasis
 st.markdown(
     f"""
     <style>
@@ -131,10 +134,10 @@ PRISON_TO_REGION = {
     "Woodhill": "Inner London", "Wormwood Scrubs": "Inner London", "Wymott": "National",
 }
 
-# NEW: Instructor (Supervisor) Avg Totals by Region & Title
+# Instructor (Supervisor) Avg Totals by Region & Title
 SUPERVISOR_PAY = {
     "Inner London": [
-        {"title": "Production Instructor: Band 3", "avg_total": 49603 - 400},  # Will replace with exact values below
+        {"title": "Production Instructor: Band 3", "avg_total": 49203},
         {"title": "Specialist Instructor: Band 4", "avg_total": 55632},
     ],
     "Outer London": [
@@ -146,8 +149,6 @@ SUPERVISOR_PAY = {
         {"title": "Production Instructor: Band 3", "avg_total": 42248},
     ],
 }
-# Correct the Inner London Band 3 to EXACT figure you provided (49,203).
-SUPERVISOR_PAY["Inner London"][0]["avg_total"] = 49203
 
 # -----------------------------------
 # Sidebar: tariffs & fixed overheads
@@ -176,7 +177,7 @@ with st.sidebar:
     )
     maint_monthly = 0.0
     if maint_method.startswith("£/m² per year"):
-        # Default changed to £8/m²/year per your instruction
+        # Default changed to £8/m²/year
         rate_per_m2_y = st.number_input("Maintenance rate (£/m²/year)", min_value=0.0, value=8.0, step=0.5)
         st.session_state["maint_rate_per_m2_y"] = rate_per_m2_y
     elif maint_method == "Set a fixed monthly amount":
@@ -340,10 +341,8 @@ def validate_inputs():
     if not customer_covers_supervisors:
         if num_supervisors <= 0:
             errors.append("Enter number of supervisors (>0) or tick 'Customer provides supervisor(s)'")
-        # When region not selected, titles_for_region is empty—catch that
         if region == "Select":
             errors.append("Select a prison/region to populate instructor titles")
-        # ensure we have the right count
         if len(supervisor_salaries) != int(num_supervisors):
             errors.append("Choose a title for each instructor")
         if any(s <= 0 for s in supervisor_salaries):
@@ -439,7 +438,7 @@ def calculate_host_costs():
 
         breakdown["Development charge baseline (20% of overheads)"] = dev_baseline_amount
         if reduction_amount > 0:
-            breakdown["Support reduction (employment support)"] = -reduction_amount  # will render red
+            breakdown["Support reduction (employment support)"] = -reduction_amount  # negative → red
         breakdown["Development charge (applied)"] = dev_applied_amount
     else:
         breakdown["Development charge (applied)"] = 0.0
@@ -539,7 +538,7 @@ def calculate_production(items: list[dict], output_percents: list[int], apportio
     return results
 
 # ----------------
-# Display helpers (true HTML with emphasis + red reductions)
+# Display helpers (true HTML with grey Grand Total + red reductions)
 # ----------------
 def _currency(v) -> str:
     try:
@@ -559,6 +558,7 @@ def _host_table_html(breakdown: dict, totals: dict, total_label="Total Monthly C
 
     if totals:
         rows_html.append(f"<tr><td>VAT ({totals.get('VAT %',0):.1f}%)</td><td>{_currency(totals.get('VAT (£)',0))}</td></tr>")
+        # Grand Total styled like header (grey bg), not bold
         rows_html.append(f"<tr class='grand'><td>Grand Total (£/month)</td><td>{_currency(totals.get('Grand Total (£/month)',0))}</td></tr>")
 
     style = """
@@ -567,7 +567,7 @@ def _host_table_html(breakdown: dict, totals: dict, total_label="Total Monthly C
         th, td { text-align:left; padding:8px 10px; border-bottom:1px solid #e6e6e6; }
         th { background:#f8f8f8; }
         td.neg { color:#D4351C; font-weight:600; }           /* reductions in red */
-        tr.grand td { font-weight:800; font-size:1.05rem; border-top:2px solid #222; } /* standout Grand Total */
+        tr.grand td { background:#f8f8f8; font-weight:400; } /* grey background like header, no bold */
       </style>
     """
     return f"{style}<table><tr><th>Cost Item</th><th>Amount (£)</th></tr>{''.join(rows_html)}</table>"
@@ -594,9 +594,8 @@ def to_dataframe_production(results: list[dict]) -> pd.DataFrame:
         if c in df.columns:
             df[c] = df[c].apply(lambda x: None if x is None else round(float(x), 2))
     return df
-
 # ----------------
-# Export helpers (CSV / HTML only)
+# Export helpers (CSV / HTML only) — with GBP 2dp formatting and grey Grand Total
 # ----------------
 def export_csv_bytes(df: pd.DataFrame) -> BytesIO:
     b = BytesIO()
@@ -604,33 +603,104 @@ def export_csv_bytes(df: pd.DataFrame) -> BytesIO:
     b.seek(0)
     return b
 
-def export_html(host_df: pd.DataFrame | None, prod_df: pd.DataFrame | None, title="Quote") -> BytesIO:
-    def df_to_html(df: pd.DataFrame) -> str:
-        return df.to_html(index=False, border=0)
+def _html_escape(text: str) -> str:
+    return (
+        str(text)
+        .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    )
 
-    html = f"""
+def _render_host_df_to_html(host_df: pd.DataFrame) -> str:
+    # Build like on-screen table to guarantee same styling/rounding
+    rows_html = []
+    for _, row in host_df.iterrows():
+        item = str(row["Item"])
+        val = row["Amount (£)"]
+        # Determine negative & grand rows
+        neg_cls = ""
+        try:
+            neg_cls = " class='neg'" if float(val) < 0 else ""
+        except Exception:
+            pass
+        # Grand row?
+        grand_cls = " class='grand'" if "Grand Total" in item else ""
+        if grand_cls:
+            # Grand row overrides neg class styling
+            rows_html.append(f"<tr{grand_cls}><td>{_html_escape(item)}</td><td>{_currency(val)}</td></tr>")
+        else:
+            rows_html.append(f"<tr><td>{_html_escape(item)}</td><td{neg_cls}>{_currency(val)}</td></tr>")
+
+    style = """
+      <style>
+        table { width:100%; border-collapse:collapse; margin: 0.5rem 0 1rem 0; font-family: Arial, Helvetica, sans-serif; }
+        th, td { text-align:left; padding:8px 10px; border-bottom:1px solid #e6e6e6; }
+        th { background:#f8f8f8; }
+        td.neg { color:#D4351C; font-weight:600; }
+        tr.grand td { background:#f8f8f8; font-weight:400; }
+      </style>
+    """
+    header = "<tr><th>Item</th><th>Amount (£)</th></tr>"
+    return f"{style}<table>{header}{''.join(rows_html)}</table>"
+
+def _render_generic_df_to_html(df: pd.DataFrame) -> str:
+    # Format numeric cells to 2dp, add £ where column name contains (£)
+    cols = list(df.columns)
+    body_rows = []
+    for _, row in df.iterrows():
+        tds = []
+        for col in cols:
+            val = row[col]
+            if isinstance(val, (int, float)) and pd.notna(val):
+                if "£" in col:
+                    tds.append(f"<td>{_currency(val)}</td>")
+                else:
+                    tds.append(f"<td>{round(float(val), 2):,.2f}</td>")
+            else:
+                tds.append(f"<td>{_html_escape(val)}</td>")
+        body_rows.append(f"<tr>{''.join(tds)}</tr>")
+
+    style = """
+      <style>
+        table { width:100%; border-collapse:collapse; margin: 0.5rem 0 1rem 0; font-family: Arial, Helvetica, sans-serif; }
+        th, td { text-align:left; padding:8px 10px; border-bottom:1px solid #e6e6e6; }
+        th { background:#f8f8f8; }
+      </style>
+    """
+    thead = "<tr>" + "".join([f"<th>{_html_escape(c)}</th>" for c in cols]) + "</tr>"
+    return f"{style}<table>{thead}{''.join(body_rows)}</table>"
+
+def export_html(host_df: pd.DataFrame | None, prod_df: pd.DataFrame | None, title="Quote") -> BytesIO:
+    html_parts = ["""
     <html>
     <head>
       <meta charset="utf-8" />
       <title>{title}</title>
       <style>
-        body {{ font-family: Arial, Helvetica, sans-serif; color:#111; }}
-        h1, h2, h3 {{ margin: 0.2rem 0 0.6rem 0; }}
-        table {{ width: 100%; border-collapse: collapse; margin: 0.5rem 0 1rem 0; }}
-        th, td {{ text-align: left; padding: 8px 10px; border-bottom: 1px solid #e6e6e6; }}
-        th {{ background: #f8f8f8; }}
+        body { font-family: Arial, Helvetica, sans-serif; color:#111; margin: 16px; }
+        h1, h2, h3 { margin: 0.2rem 0 0.6rem 0; color: #111; }
+        @media print {
+          body { margin: 8mm; }
+        }
       </style>
     </head>
     <body>
-      <h1>Cost and Price Calculator — Quote</h1>
-      <p><strong>Customer:</strong> {customer_name or ''} &nbsp;|&nbsp; <strong>Prison:</strong> {prison_choice or ''} &nbsp;|&nbsp; <strong>Region:</strong> {region or ''}</p>
-    """
+    """.replace("{title}", _html_escape(title))]
+    html_parts.append("<h1>Cost and Price Calculator — Quote</h1>")
+    # Context line
+    html_parts.append(
+        f"<p><strong>Customer:</strong> {_html_escape(customer_name or '')} &nbsp;|&nbsp; "
+        f"<strong>Prison:</strong> {_html_escape(prison_choice or '')} &nbsp;|&nbsp; "
+        f"<strong>Region:</strong> {_html_escape(region or '')}</p>"
+    )
+
     if host_df is not None:
-        html += f"<h2>Host Costs</h2>{df_to_html(host_df)}"
+        html_parts.append("<h2>Host Costs</h2>")
+        html_parts.append(_render_host_df_to_html(host_df))
     if prod_df is not None:
-        html += f"<h2>Production Items</h2>{df_to_html(prod_df)}"
-    html += "</body></html>"
-    b = BytesIO(html.encode("utf-8"))
+        html_parts.append("<h2>Production Items</h2>")
+        html_parts.append(_render_generic_df_to_html(prod_df))
+
+    html_parts.append("</body></html>")
+    b = BytesIO("".join(html_parts).encode("utf-8"))
     b.seek(0)
     return b
 
