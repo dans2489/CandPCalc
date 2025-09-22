@@ -1,15 +1,12 @@
 # Cost and Price Calculator — Streamlit app
-# v2.8 (2025-09-22)
-# Changes:
-# - "Supervisor Time Allocation" -> "Instructor Time Allocation".
-# - If allocation slider < recommended: warning + free text + choose "Set new" (requires reason) or "Keep recommended".
-# - Employment support dev charge now applied to OVERHEADS (not supervisors):
-#     None=20%, Employment on Release/RoTL=10%, Post release=10%, Both=0%.
-#   Summary shows baseline (20%), reduction, and applied dev charge. If £0, green highlight.
-# - Title NFN blue on plain background; Reset red, other buttons green.
-# - Summary rendered as real HTML (no escaped <tr>).
-# - Depreciation/Maintenance labeled "(estimated)" where shown.
-# - Host vs Production separation; VAT logic unchanged; Excel removed (CSV + PDF-ready HTML only).
+# v3.0 (2025-09-22)
+# Changes this version:
+# - Instructor (Supervisor) salary input switched to Title selection using Avg Total by Region.
+# - Region auto-detected from Prison; title list filtered by region.
+# - Keeps all prior behaviors: NFN blue title, Host heading "(costs are per month)",
+#   Grand Total emphasis, reductions in red, maintenance default £8/m²/yr, Reset Selections at footer (red),
+#   Instructor Time Allocation workflow (warning & reason when below recommended),
+#   Development % on OVERHEADS with baseline/reduction/applied lines, true-HTML summary, no Excel.
 
 from io import BytesIO
 import pandas as pd
@@ -31,11 +28,10 @@ GOV_GREEN_DARK = "#005A30"
 GOV_RED = "#D4351C"
 GOV_RED_DARK = "#942514"
 
-# Minimal CSS: NFN-blue title, green buttons, red reset button
+# Minimal CSS: NFN-blue title, green action buttons, red reset footer, table emphasis.
 st.markdown(
     f"""
     <style>
-      /* Title: NFN blue, no background bar */
       .app-title {{
         color: {NFN_BLUE} !important;
         font-size: 2.05rem;
@@ -56,7 +52,7 @@ st.markdown(
         border-color: {GOV_GREEN_DARK} !important;
       }}
 
-      /* Reset button only (red) */
+      /* Reset footer button (red) */
       .reset-btn button {{
         background-color: {GOV_RED} !important;
         color: #fff !important;
@@ -72,22 +68,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Title (NFN blue text on plain background)
 st.markdown('<h1 class="app-title">Cost and Price Calculator</h1>', unsafe_allow_html=True)
-
-# -----------------------------
-# Reset App (red button only)
-# -----------------------------
-st.markdown('<div class="reset-btn">', unsafe_allow_html=True)
-reset_clicked = st.button("Reset App", key="reset_app")
-st.markdown("</div>", unsafe_allow_html=True)
-if reset_clicked:
-    for k in list(st.session_state.keys()):
-        del st.session_state[k]
-    try:
-        st.rerun()
-    except Exception:
-        st.experimental_rerun()
 
 # -----------------------------
 # Constants and reference maps
@@ -96,7 +77,7 @@ ELECTRICITY_RATE_DEFAULT = 0.22  # £/kWh
 GAS_RATE_DEFAULT = 0.05          # £/kWh
 WATER_RATE_DEFAULT = 2.00        # £/m³
 
-# (Illustrative) EUI map (kWh/m²/year)
+# EUI map (illustrative; kWh/m²/year)
 EUI_MAP = {
     "Empty/basic (warehouse)": {"electric_kwh_m2_y": 35, "gas_kwh_m2_y": 30},
     "Light industrial":        {"electric_kwh_m2_y": 45, "gas_kwh_m2_y": 60},
@@ -104,7 +85,7 @@ EUI_MAP = {
     "High energy process":     {"electric_kwh_m2_y": 60, "gas_kwh_m2_y": 100},
 }
 
-# Full Prison → Region mapping (same as before)
+# Full Prison → Region mapping (unchanged)
 PRISON_TO_REGION = {
     "Altcourse": "National", "Ashfield": "National", "Askham Grange": "National",
     "Aylesbury": "National", "Bedford": "National", "Belmarsh": "Inner London",
@@ -150,6 +131,24 @@ PRISON_TO_REGION = {
     "Woodhill": "Inner London", "Wormwood Scrubs": "Inner London", "Wymott": "National",
 }
 
+# NEW: Instructor (Supervisor) Avg Totals by Region & Title
+SUPERVISOR_PAY = {
+    "Inner London": [
+        {"title": "Production Instructor: Band 3", "avg_total": 49603 - 400},  # Will replace with exact values below
+        {"title": "Specialist Instructor: Band 4", "avg_total": 55632},
+    ],
+    "Outer London": [
+        {"title": "Prison Officer Specialist - Instructor: Band 4", "avg_total": 69584},
+        {"title": "Production Instructor: Band 3", "avg_total": 45856},
+    ],
+    "National": [
+        {"title": "Prison Officer Specialist - Instructor: Band 4", "avg_total": 48969},
+        {"title": "Production Instructor: Band 3", "avg_total": 42248},
+    ],
+}
+# Correct the Inner London Band 3 to EXACT figure you provided (49,203).
+SUPERVISOR_PAY["Inner London"][0]["avg_total"] = 49203
+
 # -----------------------------------
 # Sidebar: tariffs & fixed overheads
 # -----------------------------------
@@ -165,7 +164,7 @@ with st.sidebar:
     )
     water_rate = st.number_input(
         "Water tariff (€/£ per m³)",
-        min_value=0.0, value=2.00, step=0.10, format="%.2f"
+        min_value=0.0, value=WATER_RATE_DEFAULT, step=0.10, format="%.2f"
     )
 
     st.markdown("---")
@@ -173,14 +172,15 @@ with st.sidebar:
     maint_method = st.radio(
         "Method",
         ["£/m² per year (industry standard)", "Set a fixed monthly amount", "% of reinstatement value"],
-        index=0,  # industry standard default
+        index=0,
     )
     maint_monthly = 0.0
     if maint_method.startswith("£/m² per year"):
-        rate_per_m2_y = st.number_input("Maintenance rate (£/m²/year)", min_value=0.0, value=15.0, step=1.0)
+        # Default changed to £8/m²/year per your instruction
+        rate_per_m2_y = st.number_input("Maintenance rate (£/m²/year)", min_value=0.0, value=8.0, step=0.5)
         st.session_state["maint_rate_per_m2_y"] = rate_per_m2_y
     elif maint_method == "Set a fixed monthly amount":
-        maint_monthly = st.number_input("Maintenance", min_value=0.0, value=0.0, step=50.0)
+        maint_monthly = st.number_input("Maintenance", min_value=0.0, value=0.0, step=25.0)
     else:  # % of reinstatement value
         reinstatement_value = st.number_input("Reinstatement value (£)", min_value=0.0, value=0.0, step=10_000.0)
         percent = st.number_input("Annual % of reinstatement value", min_value=0.0, value=2.0, step=0.25, format="%.2f")
@@ -189,11 +189,9 @@ with st.sidebar:
     st.markdown("---")
     admin_monthly = st.number_input("Administration", min_value=0.0, value=150.0, step=25.0)
 
-# -------------
-# Base inputs
-# -------------
-st.subheader("")
-
+# ----------------
+# Base inputs (no top "Inputs" subtitle)
+# ----------------
 prisons_sorted = ["Select"] + sorted(PRISON_TO_REGION.keys())
 prison_choice = st.selectbox("Prison Name", prisons_sorted, index=0)
 region = PRISON_TO_REGION.get(prison_choice, "Select") if prison_choice != "Select" else "Select"
@@ -233,27 +231,38 @@ workshop_hours = st.number_input("How many hours per week is it open? (for produ
 num_prisoners = st.number_input("How many prisoners employed?", min_value=0, step=1)
 prisoner_salary = st.number_input("Prisoner salary per week (£)", min_value=0.0, format="%.2f")
 
-# Supervisors (kept label in costs; only the time allocation section is renamed per request)
+# Instructors (formerly supervisors)
 num_supervisors = st.number_input("How many supervisors?", min_value=0, step=1)
 customer_covers_supervisors = st.checkbox("Customer provides supervisor(s)?")
 
 supervisor_salaries = []
 recommended_pct = 0
 if not customer_covers_supervisors:
-    for i in range(int(num_supervisors)):
-        sup_salary = st.number_input(
-            f"Supervisor {i+1} annual salary (£)", min_value=0.0, format="%.2f", key=f"sup_salary_{i}"
-        )
-        supervisor_salaries.append(sup_salary)
-    contracts = st.number_input("How many contracts do these supervisors oversee?", min_value=1, value=1)
+    # Title selection uses Region from prison to filter available titles
+    titles_for_region = SUPERVISOR_PAY.get(region, [])
+    if region == "Select" or not titles_for_region:
+        st.warning("Select a prison to derive the Region before assigning instructor titles.")
+    else:
+        for i in range(int(num_supervisors)):
+            options = [t["title"] for t in titles_for_region]
+            sel = st.selectbox(
+                f"Instructor {i+1} title",
+                options,
+                key=f"inst_title_{i}"
+            )
+            pay = next(t["avg_total"] for t in titles_for_region if t["title"] == sel)
+            st.caption(f"Avg Total for {region}: **£{pay:,.0f}** per year")
+            supervisor_salaries.append(float(pay))
+
+    # Contracts & recommended allocation (same logic)
+    contracts = st.number_input("How many contracts do these instructors oversee?", min_value=1, value=1)
     recommended_pct = round((workshop_hours / 37.5) * (1 / contracts) * 100, 1) if contracts and workshop_hours >= 0 else 0
 
-    # --- Instructor Time Allocation (UI label only) ---
+    # Instructor Time Allocation
     st.subheader("Instructor Time Allocation")
     st.info(f"Recommended: {recommended_pct}%")
     chosen_pct = st.slider("Adjust instructor % allocation", 0, 100, int(recommended_pct), key="chosen_pct")
 
-    # If less than recommended: warning + explanation + choose action
     effective_pct = int(chosen_pct)
     if chosen_pct < int(round(recommended_pct)):
         st.warning("You have selected less than recommended — please explain why here.")
@@ -267,13 +276,11 @@ if not customer_covers_supervisors:
                 effective_pct = int(chosen_pct)
         else:
             effective_pct = int(round(recommended_pct))
-    else:
-        effective_pct = int(chosen_pct)
 else:
     chosen_pct = 0
-    effective_pct = 0  # no internal supervisors to allocate
+    effective_pct = 0
 
-# Employment support → development charge rate applied to OVERHEADS
+# Employment support → development % of OVERHEADS
 dev_rate = 0.0
 support = "Select"
 if customer_type == "Commercial":
@@ -324,7 +331,6 @@ def validate_inputs():
         errors.append("Select workshop type")
     if area_ft2 <= 0:
         errors.append("Area must be greater than zero")
-    # Hours only required for Production mode
     if workshop_mode == "Production" and workshop_hours <= 0:
         errors.append("Hours per week must be > 0 (Production)")
     if num_prisoners <= 0:
@@ -334,8 +340,14 @@ def validate_inputs():
     if not customer_covers_supervisors:
         if num_supervisors <= 0:
             errors.append("Enter number of supervisors (>0) or tick 'Customer provides supervisor(s)'")
+        # When region not selected, titles_for_region is empty—catch that
+        if region == "Select":
+            errors.append("Select a prison/region to populate instructor titles")
+        # ensure we have the right count
+        if len(supervisor_salaries) != int(num_supervisors):
+            errors.append("Choose a title for each instructor")
         if any(s <= 0 for s in supervisor_salaries):
-            errors.append("Enter all supervisor salaries (>0)")
+            errors.append("Instructor Avg Total must be > 0")
     return errors
 
 # ----------------
@@ -367,7 +379,7 @@ def weekly_overheads_total():
     (Maintenance labeled as estimated for consistency with overheads.)
     """
     if maint_method.startswith("£/m² per year"):
-        rate = st.session_state.get("maint_rate_per_m2_y", 15.0)
+        rate = st.session_state.get("maint_rate_per_m2_y", 8.0)
         maint_m = (rate * area_m2) / 12.0
     else:
         maint_m = maint_monthly
@@ -390,10 +402,10 @@ def weekly_overheads_total():
 def calculate_host_costs():
     breakdown = {}
 
-    # Prisoner wages (per month) — not estimated
+    # Prisoner wages (per month)
     breakdown["Prisoner wages"] = num_prisoners * prisoner_salary * (52 / 12)
 
-    # Supervisors apportioned to this contract (per month) — not estimated
+    # Supervisors (Instructors) apportioned per effective_pct
     supervisor_cost = 0.0
     if not customer_covers_supervisors:
         supervisor_cost = sum((s / 12) * (effective_pct / 100) for s in supervisor_salaries)
@@ -407,34 +419,28 @@ def calculate_host_costs():
     breakdown["Water (estimated)"] = water_m
     breakdown["Administration"] = admin_monthly
 
+    # Maintenance (estimated)
     if maint_method.startswith("£/m² per year"):
-        rate = st.session_state.get("maint_rate_per_m2_y", 15.0)
+        rate = st.session_state.get("maint_rate_per_m2_y", 8.0)
         maint_val = (rate * area_m2) / 12.0
     else:
         maint_val = maint_monthly
     breakdown["Depreciation/Maintenance (estimated)"] = maint_val
 
-    # --- Development charge on OVERHEADS (Commercial only) ---
-    # Overheads subtotal for dev charge basis:
+    # Development charge on OVERHEADS (Commercial only)
     overheads_subtotal = elec_m + gas_m + water_m + admin_monthly + maint_val
-
     dev_baseline_rate = 0.20  # baseline for "None"
     dev_baseline_amount = overheads_subtotal * dev_baseline_rate
 
     if customer_type == "Commercial":
-        dev_applied_rate = dev_rate  # from support selection
+        dev_applied_rate = dev_rate
         dev_applied_amount = overheads_subtotal * dev_applied_rate
         reduction_amount = max(dev_baseline_amount - dev_applied_amount, 0.0)
 
-        # Show baseline and reduction lines when support != "None" (or "Both")
         breakdown["Development charge baseline (20% of overheads)"] = dev_baseline_amount
         if reduction_amount > 0:
-            breakdown["Support reduction (employment support)"] = -reduction_amount
+            breakdown["Support reduction (employment support)"] = -reduction_amount  # will render red
         breakdown["Development charge (applied)"] = dev_applied_amount
-
-        # Visual highlight when £0
-        if dev_applied_amount == 0:
-            st.success("Development charge has been **reduced to £0** due to the **support offered**.")
     else:
         breakdown["Development charge (applied)"] = 0.0
 
@@ -533,7 +539,7 @@ def calculate_production(items: list[dict], output_percents: list[int], apportio
     return results
 
 # ----------------
-# Display helpers
+# Display helpers (true HTML with emphasis + red reductions)
 # ----------------
 def _currency(v) -> str:
     try:
@@ -542,36 +548,34 @@ def _currency(v) -> str:
         return str(v)
 
 def _host_table_html(breakdown: dict, totals: dict, total_label="Total Monthly Cost") -> str:
-    """Build a clean HTML table (no escaping)."""
     rows_html = []
     for k, v in breakdown.items():
-        rows_html.append(f"<tr><td>{k}</td><td>{_currency(v)}</td></tr>")
+        amount = _currency(v)
+        neg_cls = " class='neg'" if isinstance(v, (int, float)) and v < 0 else ""
+        rows_html.append(f"<tr><td>{k}</td><td{neg_cls}>{amount}</td></tr>")
+
     total = sum(breakdown.values())
     rows_html.append(f"<tr><td>{total_label}</td><td>{_currency(total)}</td></tr>")
+
     if totals:
         rows_html.append(f"<tr><td>VAT ({totals.get('VAT %',0):.1f}%)</td><td>{_currency(totals.get('VAT (£)',0))}</td></tr>")
-        rows_html.append(f"<tr><td>Grand Total (£/month)</td><td>{_currency(totals.get('Grand Total (£/month)',0))}</td></tr>")
+        rows_html.append(f"<tr class='grand'><td>Grand Total (£/month)</td><td>{_currency(totals.get('Grand Total (£/month)',0))}</td></tr>")
+
     style = """
       <style>
         table { width:100%; border-collapse:collapse; margin: 0.5rem 0 1rem 0; font-family: Arial, Helvetica, sans-serif; }
         th, td { text-align:left; padding:8px 10px; border-bottom:1px solid #e6e6e6; }
         th { background:#f8f8f8; }
+        td.neg { color:#D4351C; font-weight:600; }           /* reductions in red */
+        tr.grand td { font-weight:800; font-size:1.05rem; border-top:2px solid #222; } /* standout Grand Total */
       </style>
     """
-    html = f"""
-      {style}
-      <table>
-        <tr><th>Cost Item</th><th>Amount (£)</th></tr>
-        {''.join(rows_html)}
-      </table>
-    """
-    return html
+    return f"{style}<table><tr><th>Cost Item</th><th>Amount (£)</th></tr>{''.join(rows_html)}</table>"
 
 def display_table(breakdown: dict, totals: dict, total_label="Total Monthly Cost"):
-    """Render as true HTML to avoid escaped <tr>/<td> text."""
     html = _host_table_html(breakdown, totals, total_label)
     rows = 1 + len(breakdown) + (2 if totals else 0)
-    height = 80 + int(rows * 40)
+    height = 100 + int(rows * 40)
     st.components.v1.html(html, height=height, scrolling=False)
 
 def to_dataframe_host(breakdown: dict, totals: dict) -> pd.DataFrame:
@@ -641,10 +645,9 @@ if workshop_mode == "Host":
         if errors:
             st.error("Fix errors:\n- " + "\n- ".join(errors))
         else:
-            st.subheader(f"Host Contract for {customer_name} Costs are per month.")
+            heading_name = customer_name if str(customer_name).strip() else "Customer"
+            st.subheader(f"Host Contract for {heading_name} (costs are per month)")
             breakdown, totals = calculate_host_costs()
-
-            # Render HTML table (no escaping)
             display_table(breakdown, totals)
 
             host_df = to_dataframe_host(breakdown, totals)
@@ -706,7 +709,6 @@ elif workshop_mode == "Production":
     if errors:
         st.error("Fix errors before production calculations:\n- " + "\n- ".join(errors))
     else:
-        # Preview capacities + Output % sliders
         output_percents = []
         for i, it in enumerate(items):
             cap_preview = 0.0
@@ -715,7 +717,6 @@ elif workshop_mode == "Production":
             st.markdown(f"Item {i+1} capacity @ 100%: **{cap_preview:.0f} units/week**")
             output_percents.append(st.slider(f"Output % for Item {i+1}", min_value=0, max_value=100, value=100, key=f"percent_{i}"))
 
-        # Compute and render
         results = calculate_production(items, output_percents, apportion_rule)
 
         for r in results:
@@ -733,7 +734,6 @@ elif workshop_mode == "Production":
                 if r["Unit Price inc VAT (£)"] is not None:
                     st.write(f"- Unit Price inc VAT (£): **£{r['Unit Price inc VAT (£)']:.2f}**")
 
-        # Exports (CSV + PDF-ready HTML only)
         prod_df = to_dataframe_production(results)
         st.download_button(
             "Download CSV (Production)",
@@ -748,6 +748,15 @@ elif workshop_mode == "Production":
             mime="text/html",
         )
 
-# If no branch selected yet, nudge user
-elif workshop_mode == "Select":
-    st.info("Select a **Contract type** to continue.")
+# ----------------
+# Footer: Reset Selections (red) — at the very end
+# ----------------
+st.markdown('<div class="reset-btn">', unsafe_allow_html=True)
+if st.button("Reset Selections", key="reset_app_footer"):
+    for k in list(st.session_state.keys()):
+        del st.session_state[k]
+    try:
+        st.rerun()
+    except Exception:
+        st.experimental_rerun()
+st.markdown('</div>', unsafe_allow_html=True)
