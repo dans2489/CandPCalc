@@ -17,7 +17,7 @@ import streamlit as st
 # PAGE CONFIG
 # ----------------------------
 st.set_page_config(
-    page_title="Prison Workshop Costing Tool",
+    page_title="Cost and Price Calculator",
     page_icon="🏭",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -45,7 +45,7 @@ st.markdown(
   display: flex; align-items:center; gap:.75rem;
 }}
 .topbar .title {{
-  color: #fff; font-weight: 700; letter-spacing:.2px; font-size: 1.05rem; margin:0;
+  color: #fff; font-weight: 700; letter-spacing:.2px; font-size: 2.05rem; margin:0;
 }}
 
 /* Area badge (GOV green) */
