@@ -33,7 +33,7 @@ st.markdown("""
 .main { background-color: #ffffff; color: #0b0c0c; }
 .stApp h1 { color: #005ea5; font-weight: bold; margin-bottom: 20px; }
 .stApp h2, .stApp h3 { color: #005ea5; margin-top: 15px; margin-bottom: 10px; }
-div.stButton > button:first-child { background-color: #005ea5; color: white; font-weight: bold; padding: 6px 12px; border-radius: 4px; margin-top: 10px; margin-bottom: 10px; }
+div.stButton > button:first-child { background-color: #10703c; color: white; font-weight: bold; padding: 6px 12px; border-radius: 4px; margin-top: 10px; margin-bottom: 10px; }
 div.stTextInput > label, div.stNumberInput > label, div.stSelectbox > label, div.stRadio > label { font-weight: bold; margin-bottom: 5px; }
 .stSlider > div > div:nth-child(1) > div > div > div { color: #005ea5; }
 .stForm, .stContainer { box-shadow: 0 0 5px #e1e1e1; padding: 12px 15px; border-radius: 5px; margin-bottom: 15px; }
@@ -45,9 +45,10 @@ table tr.total-row { font-weight: bold; background-color: #e6f0fa; }
 """, unsafe_allow_html=True)
 
 # ------------------------------
-# TITLE
+# LOGO + TITLE
 # ------------------------------
-st.title("Cost and Price Calculator")
+st.image("new_futures_network_logo.png", width=200)
+st.title("Prison Workshop Costing Tool")
 
 # ------------------------------
 # INPUTS
@@ -57,24 +58,32 @@ prison_name = st.text_input("Prison Name")
 customer_type = st.radio("Quote for a?", ["Select", "Commercial", "Another Government Department"], index=0)
 customer_name = st.text_input("Customer?")
 workshop_mode = st.radio("Contract type?", ["Select", "Host", "Production"], index=0)
+workshop_size = st.selectbox("Workshop size?", ["Select", "Small (classroom, ~25 prisoners)", 
+                                                "Medium (~50 prisoners)", "Large (~100 prisoners)", "Enter dimensions"], index=0)
 
-workshop_size = st.selectbox("Workshop size?", ["Select", "Small (~25 prisoners)", "Medium (~50 prisoners)", "Large (~75 prisoners)", "Enter dimensions in feet"], index=0)
+# Area
 area = 0
-if workshop_size == "Enter dimensions in feet":
+if workshop_size == "Enter dimensions":
     width = st.number_input("Width (ft)", min_value=0.0, format="%.2f", value=0.0)
     length = st.number_input("Length (ft)", min_value=0.0, format="%.2f", value=0.0)
     if width > 0 and length > 0:
         area = width * length
 else:
-    area_map = {"Small (~25 prisoners)": 600, "Medium (~50 prisoners)": 1200, "Large (~75 prisoners)": 1800}  # sq ft
+    area_map = {
+        "Small (classroom, ~25 prisoners)": 60*30,  # ~1800 ft²
+        "Medium (~50 prisoners)": 100*50,           # ~5000 ft²
+        "Large (~100 prisoners)": 200*75            # ~15000 ft²
+    }
     area = area_map.get(workshop_size, 0)
 
 workshop_type = st.selectbox("Workshop type?", ["Select"] + list(workshop_energy.keys()), index=0)
 workshop_hours = st.number_input("How many hours per week is it open?", min_value=0.0, format="%.2f", value=0.0)
 
+# Prisoner employment
 num_prisoners = st.number_input("How many prisoners employed?", min_value=0, value=0)
 prisoner_salary = st.number_input("Prisoner salary per week (£)", min_value=0.0, format="%.2f", value=0.0)
 
+# Supervisors
 num_supervisors = st.number_input("How many supervisors?", min_value=0, value=0)
 customer_covers_supervisors = st.checkbox("Customer provides supervisor(s) (no salary cost to prison)?")
 
@@ -83,11 +92,9 @@ if not customer_covers_supervisors:
     for i in range(num_supervisors):
         sup_salary = st.number_input(f"Supervisor {i+1} annual salary (£)", min_value=0.0, format="%.2f", value=0.0)
         supervisor_salaries.append(sup_salary)
-    contracts = st.number_input("How many contracts do these supervisors oversee?", min_value=0, value=0)
-else:
-    contracts = 0
+    contracts = st.number_input("How many contracts do these supervisors oversee?", min_value=1, value=1)
 
-# Employment support (Commercial)
+# Employment support (for commercial)
 support = None
 dev_charge = 0.0
 if customer_type == "Commercial":
@@ -105,18 +112,20 @@ if customer_type == "Commercial":
             dev_charge = 0.0
 
 # Supervisor % allocation
-st.subheader("Supervisor Time Allocation")
-recommended_pct = 0
-if workshop_hours > 0 and contracts > 0 and not customer_covers_supervisors:
-    recommended_pct = round((workshop_hours / 37.5) * (1 / contracts) * 100, 1)
-    st.info(f"{recommended_pct}% recommended supervisor allocation")
-    chosen_pct = st.slider("Adjust supervisor % allocation", 0, 100, int(recommended_pct), step=1)
+if not customer_covers_supervisors:
+    st.subheader("Supervisor Time Allocation")
+    recommended_pct = 0
+    if workshop_hours > 0 and contracts > 0:
+        recommended_pct = round((workshop_hours / 37.5) * (1 / contracts) * 100, 1)
+        st.info(f"{recommended_pct}% recommended supervisor allocation")
+        chosen_pct = st.slider("Adjust supervisor % allocation", 0, 100, int(recommended_pct), step=1)
+    else:
+        chosen_pct = 100
+    reason_for_low_pct = ""
+    if chosen_pct < recommended_pct:
+        reason_for_low_pct = st.text_area("Please explain why you are choosing a lower percentage:")
 else:
     chosen_pct = 100
-
-reason_for_low_pct = ""
-if chosen_pct < recommended_pct:
-    reason_for_low_pct = st.text_area("Please explain why you are choosing a lower percentage:")
 
 # ------------------------------
 # VALIDATION
@@ -150,10 +159,10 @@ def validate_inputs():
             errors.append("Please enter the number of supervisors.")
         if not supervisor_salaries or any(s <= 0 for s in supervisor_salaries):
             errors.append("Please enter all supervisor salaries.")
-        if contracts <= 0:
-            errors.append("Please enter the number of contracts overseen.")
-        if chosen_pct < recommended_pct and not reason_for_low_pct.strip():
-            errors.append("Please provide a reason for choosing a lower supervisor % allocation.")
+    if not customer_covers_supervisors and contracts <= 0:
+        errors.append("Please enter the number of contracts overseen.")
+    if not customer_covers_supervisors and chosen_pct < recommended_pct and not reason_for_low_pct.strip():
+        errors.append("Please provide a reason for choosing a lower supervisor % allocation.")
     return errors
 
 # ------------------------------
@@ -161,7 +170,10 @@ def validate_inputs():
 # ------------------------------
 def calculate_host_costs():
     breakdown = {}
+    # Prisoner wages (monthly)
     breakdown["Prisoner wages"] = num_prisoners * prisoner_salary * (52/12)
+
+    # Supervisors
     supervisor_cost = 0
     if not customer_covers_supervisors:
         supervisor_cost = sum((s / 12) * (chosen_pct / 100) for s in supervisor_salaries)
@@ -190,18 +202,14 @@ def calculate_host_costs():
 
 def calculate_production_items(items):
     results = []
-    sup_monthly = 0
-    if not customer_covers_supervisors:
-        sup_monthly = sum([(s / 12) * (chosen_pct / 100) for s in supervisor_salaries])
+    sup_monthly = sum([(s / 12) * (chosen_pct / 100) for s in supervisor_salaries]) if not customer_covers_supervisors else 0
     prisoner_monthly = num_prisoners * prisoner_salary * (52/12)
 
     for name, mins_per_unit, prisoners_on_item in items:
         available_minutes = prisoners_on_item * workshop_hours * 60 * (52/12)
         max_units = available_minutes / mins_per_unit if mins_per_unit > 0 else 0
-
         total_cost = sup_monthly + prisoner_monthly
         unit_cost = round(total_cost / max(max_units, 1), 2) if max_units > 0 else 0
-
         weekly_total_cost = total_cost * (12/52)
         min_items_per_week = round(weekly_total_cost / unit_cost, 1) if unit_cost > 0 else 0
 
@@ -240,20 +248,18 @@ if st.button("Generate Costing"):
 
         elif workshop_mode == "Production":
             st.subheader("Production Contract Costing")
-            if "num_items" not in st.session_state:
-                st.session_state.num_items = 1
-            st.session_state.num_items = st.number_input(
-                "How many different items are produced?", min_value=1, value=st.session_state.num_items
-            )
+            num_items = st.number_input("How many different items are produced?", min_value=1, value=1)
             items = []
-            for i in range(st.session_state.num_items):
+            for i in range(num_items):
                 name = st.text_input(f"Item {i+1} name", key=f"name_{i}")
-                mins_per_unit = st.number_input(f"Minutes to make one {name}", min_value=0.1, format="%.1f", key=f"mins_{i}")
+                mins_per_unit = st.number_input(f"Minutes to make one {name}", min_value=1.0, format="%.1f", key=f"mins_{i}")
                 prisoners_on_item = st.number_input(f"How many prisoners work on {name}?", min_value=1, key=f"prisoners_{i}")
                 items.append((name, mins_per_unit, prisoners_on_item))
-            if st.button("Calculate Production Costs"):
+            if st.button("Calculate Production Costs", key="calc_prod"):
                 results = calculate_production_items(items)
+                st.subheader("Production Cost Results")
                 for r in results:
                     st.write(f"**{r['Item']}**")
                     st.write(f"- Unit Cost (£): £{r['Unit Cost (£)']:.2f}")
                     st.write(f"- Minimum items needed per week to cover costs: {r['Min Items/Week']}")
+    
