@@ -1,16 +1,19 @@
 # Cost and Price Calculator — Streamlit app
-# v2.6 (2025-09-22)
-# Updates for Dan:
-# - Reset App button styled RED (GOV.UK red) with white text; other buttons remain GOV.UK green.
-# - "Depreciation/Maintenance (estimated)" label in summary (Host table).
-# - Host vs Production separation retained; Excel removed; VAT logic unchanged.
+# v2.7 (2025-09-22)
+# Changes:
+# - Removed blue header bar; title now NFN blue text on plain background.
+# - Fixed summary rendering: use components.html to prevent escaped <tr>/<td> in output.
+# - Reset App button remains red; other buttons remain GOV.UK green.
+# - Depreciation/Maintenance labeled "(estimated)" in summary.
+# - Host vs Production separation, VAT logic, no Excel (CSV + PDF-HTML only).
 
 from io import BytesIO
 import pandas as pd
 import streamlit as st
+import math
 
 # -----------------------------
-# Page config + theming
+# Page config + minimal theming
 # -----------------------------
 st.set_page_config(
     page_title="Cost and Price Calculator",
@@ -25,38 +28,29 @@ GOV_GREEN_DARK = "#005A30"
 GOV_RED = "#D4351C"
 GOV_RED_DARK = "#942514"
 
-# Header + button theming
+# Minimal CSS: NFN-blue title, green buttons, red reset button
 st.markdown(
     f"""
     <style>
-      .app-header {{
-        background:{NFN_BLUE};
-        padding:14px 18px;
-        border-radius:6px;
-        margin-bottom:14px;
-      }}
+      /* Title: NFN blue, no background bar */
       .app-title {{
-        color:#fff;
-        font-size:2.05rem;
-        line-height:1.1;
-        margin:0;
+        color: {NFN_BLUE} !important;
+        font-size: 2.05rem;
+        line-height: 1.1;
+        margin: 0 0 14px 0;
+        font-weight: 700;
       }}
 
-      /* Default buttons: GOV.UK green */
-      div.stButton > button[kind="primary"],
-      div.stDownloadButton > button[kind="primary"],
-      div.stButton > button,
-      div.stDownloadButton > button {{
+      /* Default buttons = GOV.UK green */
+      div.stButton > button, div.stDownloadButton > button {{
         background-color: {GOV_GREEN} !important;
         color: #fff !important;
         border: 1px solid {GOV_GREEN_DARK} !important;
         border-radius: 6px !important;
       }}
-      div.stButton > button:hover,
-      div.stDownloadButton > button:hover {{
+      div.stButton > button:hover, div.stDownloadButton > button:hover {{
         background-color: {GOV_GREEN_DARK} !important;
         border-color: {GOV_GREEN_DARK} !important;
-        color: #fff !important;
       }}
 
       /* Reset button only (red) */
@@ -69,35 +63,21 @@ st.markdown(
       .reset-btn button:hover {{
         background-color: {GOV_RED_DARK} !important;
         border-color: {GOV_RED_DARK} !important;
-        color: #fff !important;
-      }}
-
-      /* Tables */
-      table {{
-        width: 100%;
-        border-collapse: collapse;
-        margin: 0.5rem 0 1rem 0;
-      }}
-      th, td {{
-        text-align: left;
-        padding: 8px 10px;
-        border-bottom: 1px solid #e6e6e6;
-      }}
-      th {{
-        background: #f8f8f8;
       }}
     </style>
-    <div class="app-header"><h1 class="app-title">Cost and Price Calculator</h1></div>
     """,
     unsafe_allow_html=True,
 )
 
+# Title (NFN blue text on plain background)
+st.markdown('<h1 class="app-title">Cost and Price Calculator</h1>', unsafe_allow_html=True)
+
 # -----------------------------
-# Reset App (RED button only)
+# Reset App (red button only)
 # -----------------------------
 st.markdown('<div class="reset-btn">', unsafe_allow_html=True)
 reset_clicked = st.button("Reset App", key="reset_app")
-st.markdown('</div>', unsafe_allow_html=True)
+st.markdown("</div>", unsafe_allow_html=True)
 if reset_clicked:
     for k in list(st.session_state.keys()):
         del st.session_state[k]
@@ -194,10 +174,7 @@ with st.sidebar:
     )
     maint_monthly = 0.0
     if maint_method.startswith("£/m² per year"):
-        rate_per_m2_y = st.number_input(
-            "Maintenance rate (£/m²/year)",
-            min_value=0.0, value=15.0, step=1.0
-        )
+        rate_per_m2_y = st.number_input("Maintenance rate (£/m²/year)", min_value=0.0, value=15.0, step=1.0)
         st.session_state["maint_rate_per_m2_y"] = rate_per_m2_y
     elif maint_method == "Set a fixed monthly amount":
         maint_monthly = st.number_input("Maintenance", min_value=0.0, value=0.0, step=50.0)
@@ -403,7 +380,7 @@ def calculate_host_costs():
         supervisor_cost = sum((s / 12) * (chosen_pct / 100) for s in supervisor_salaries)
     breakdown["Supervisors"] = supervisor_cost
 
-    # Overheads (utilities are estimated; admin is not; maintenance now estimated)
+    # Overheads (utilities estimated; admin not; maintenance estimated)
     elec_m, gas_m = monthly_energy_costs()
     water_m = monthly_water_costs()
     breakdown["Electricity (estimated)"] = elec_m
@@ -523,41 +500,46 @@ def calculate_production(items: list[dict], output_percents: list[int], apportio
 # ----------------
 # Display helpers
 # ----------------
-def display_table(breakdown: dict, totals: dict, total_label="Total Monthly Cost"):
-    html = """
-    <table>
-      <tr>
-        <th>Cost Item</th>
-        <th>Amount (£)</th>
-      </tr>
-    """
+def _currency(v) -> str:
+    try:
+        return f"£{float(v):,.2f}"
+    except Exception:
+        return str(v)
+
+def _host_table_html(breakdown: dict, totals: dict, total_label="Total Monthly Cost") -> str:
+    """Build a clean HTML table (no escaping)."""
+    rows_html = []
     for k, v in breakdown.items():
-        html += f"""
-        <tr>
-          <td>{k}</td>
-          <td>£{v:,.2f}</td>
-        </tr>
-        """
+        rows_html.append(f"<tr><td>{k}</td><td>{_currency(v)}</td></tr>")
     total = sum(breakdown.values())
-    html += f"""
-      <tr>
-        <td>{total_label}</td>
-        <td>£{total:,.2f}</td>
-      </tr>
-    """
+    rows_html.append(f"<tr><td>{total_label}</td><td>{_currency(total)}</td></tr>")
     if totals:
-        html += f"""
-        <tr>
-          <td>VAT ({totals.get('VAT %',0):.1f}%)</td>
-          <td>£{totals.get('VAT (£)',0):,.2f}</td>
-        </tr>
-        <tr>
-          <td>Grand Total (£/month)</td>
-          <td>£{totals.get('Grand Total (£/month)',0):,.2f}</td>
-        </tr>
-        """
-    html += "</table>"
-    st.markdown(html, unsafe_allow_html=True)
+        rows_html.append(f"<tr><td>VAT ({totals.get('VAT %',0):.1f}%)</td><td>{_currency(totals.get('VAT (£)',0))}</td></tr>")
+        rows_html.append(f"<tr><td>Grand Total (£/month)</td><td>{_currency(totals.get('Grand Total (£/month)',0))}</td></tr>")
+    # basic style to keep it consistent even inside iframe
+    style = """
+      <style>
+        table { width:100%; border-collapse:collapse; margin: 0.5rem 0 1rem 0; font-family: Arial, Helvetica, sans-serif; }
+        th, td { text-align:left; padding:8px 10px; border-bottom:1px solid #e6e6e6; }
+        th { background:#f8f8f8; }
+      </style>
+    """
+    html = f"""
+      {style}
+      <table>
+        <tr><th>Cost Item</th><th>Amount (£)</th></tr>
+        {''.join(rows_html)}
+      </table>
+    """
+    return html
+
+def display_table(breakdown: dict, totals: dict, total_label="Total Monthly Cost"):
+    """Render as true HTML to avoid escaped <tr>/<td> text."""
+    html = _host_table_html(breakdown, totals, total_label)
+    # Height heuristic: header + (rows * 40px)
+    rows = 1 + len(breakdown) + (2 if totals else 0)
+    height = 80 + int(rows * 40)
+    st.components.v1.html(html, height=height, scrolling=False)
 
 def to_dataframe_host(breakdown: dict, totals: dict) -> pd.DataFrame:
     rows = list(breakdown.items())
@@ -607,15 +589,9 @@ def export_html(host_df: pd.DataFrame | None, prod_df: pd.DataFrame | None, titl
       <p><strong>Customer:</strong> {customer_name or ''} &nbsp;|&nbsp; <strong>Prison:</strong> {prison_choice or ''} &nbsp;|&nbsp; <strong>Region:</strong> {region or ''}</p>
     """
     if host_df is not None:
-        html += f"""
-        <h2>Host Costs</h2>
-        {df_to_html(host_df)}
-        """
+        html += f"<h2>Host Costs</h2>{df_to_html(host_df)}"
     if prod_df is not None:
-        html += f"""
-        <h2>Production Items</h2>
-        {df_to_html(prod_df)}
-        """
+        html += f"<h2>Production Items</h2>{df_to_html(prod_df)}"
     html += "</body></html>"
     b = BytesIO(html.encode("utf-8"))
     b.seek(0)
@@ -632,13 +608,14 @@ if workshop_mode == "Host":
         if errors:
             st.error("Fix errors:\n- " + "\n- ".join(errors))
         else:
-            # Summary wording only; no HTML leakage
+            # Summary wording only; plain text
             st.subheader(f"Host Contract for {customer_name} Costs are per month.")
             breakdown, totals = calculate_host_costs()
 
             if customer_type == "Commercial" and dev_charge == 0.0:
                 st.success("Development charge has been **reduced to £0** due to the **support offered**.")
 
+            # Render HTML table (no escaping)
             display_table(breakdown, totals)
 
             host_df = to_dataframe_host(breakdown, totals)
