@@ -111,7 +111,7 @@ def render_header():
     st.markdown(
         """
 <div class="topbar">
-  <span class="title">Prison Workshop Costing Tool</span>
+  <span class="title">Cost and Price Calculator</span>
 </div>
 """,
         unsafe_allow_html=True,
