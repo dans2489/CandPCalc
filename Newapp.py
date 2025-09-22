@@ -7,10 +7,13 @@ from pathlib import Path
 st.set_page_config(page_title="Prison Workshop Costing Tool", layout="wide")
 
 # ------------------------------
-# THEME (NFN blue) + LIGHT CSS
+# THEME: NFN blue header + GOV.UK green actions
 # ------------------------------
 NFN_BLUE = "#1D428A"
 NFN_BLUE_DARK = "#153163"
+GOV_GREEN = "#00703C"   # GOV.UK success/green
+GOV_GREEN_DARK = "#005A30"
+GOV_FOCUS = "#FFDD00"   # GOV.UK focus yellow
 
 st.markdown(
     f"""
@@ -18,30 +21,43 @@ st.markdown(
         :root {{
             --nfn-blue: {NFN_BLUE};
             --nfn-blue-dark: {NFN_BLUE_DARK};
+            --gov-green: {GOV_GREEN};
+            --gov-green-dark: {GOV_GREEN_DARK};
+            --gov-focus: {GOV_FOCUS};
         }}
 
-        /* Title/header styling */
-        .nfn-header {{
-            display: flex; align-items: center; gap: 16px;
-            padding: 8px 0 16px 0;
-            border-bottom: 3px solid var(--nfn-blue);
-            margin-bottom: 8px;
-        }}
+        /* Header styling (keep NFN brand) */
         .nfn-title {{
             margin: 0; color: var(--nfn-blue);
             font-size: 1.6rem; font-weight: 700;
+            padding-bottom: 4px;
+            border-bottom: 3px solid var(--nfn-blue);
+            margin-bottom: 8px;
         }}
 
-        /* Buttons */
+        /* Primary buttons use GOV.UK green */
         .stButton > button[kind="primary"] {{
-            background-color: var(--nfn-blue) !important;
-            border: 1px solid var(--nfn-blue) !important;
+            background-color: var(--gov-green) !important;
+            border: 1px solid var(--gov-green) !important;
             color: #fff !important;
         }}
         .stButton > button[kind="primary"]:hover {{
-            background-color: var(--nfn-blue-dark) !important;
-            border-color: var(--nfn-blue-dark) !important;
+            background-color: var(--gov-green-dark) !important;
+            border-color: var(--gov-green-dark) !important;
         }}
+
+        /* Add a GOV.UK-style focus treatment (yellow) */
+        .stButton > button:focus,
+        .stTextInput input:focus,
+        .stNumberInput input:focus,
+        .stSelectbox [data-baseweb="select"] div:focus,
+        .stSlider [role="slider"]:focus {{
+            outline: 3px solid var(--gov-focus) !important;
+            outline-offset: 0 !important;
+            box-shadow: 0 0 0 3px var(--gov-focus) inset !important;
+        }}
+
+        /* Secondary buttons keep NFN accent */
         .stButton > button:not([kind="primary"]) {{
             border: 1px solid var(--nfn-blue) !important;
             color: var(--nfn-blue) !important;
@@ -51,7 +67,7 @@ st.markdown(
             background: rgba(29,66,138,0.08) !important;
         }}
 
-        /* Expanders */
+        /* Expanders with NFN blue headings */
         .st-expanderHeader, .stExpander > details > summary {{
             color: var(--nfn-blue) !important;
             font-weight: 600 !important;
@@ -60,7 +76,7 @@ st.markdown(
         /* Links */
         a, a:visited {{ color: var(--nfn-blue); }}
 
-        /* Read-only inputs */
+        /* Read-only inputs look consistent */
         input[disabled], .stTextInput [disabled] {{
             color: #333 !important;
         }}
@@ -70,14 +86,13 @@ st.markdown(
 )
 
 # ------------------------------
-# LOGO (robust: URL -> local -> text link)
+# LOGO (URL -> local -> text link)
 # ------------------------------
 def render_header():
     """
-    Display NFN logo without crashes:
     1) Sidebar-provided URL (direct image link)
     2) Local 'assets/nfn_logo.png'
-    3) Text fallback linking to NFN website
+    3) Text fallback (no crash)
     """
     logo_url = st.session_state.get("nfn_logo_url", "").strip()
     local_logo = Path("assets/nfn_logo.png")
@@ -87,7 +102,7 @@ def render_header():
         shown = False
         if logo_url:
             try:
-                st.image(logo_url, use_container_width=True)
+                st.image(logo_url, use_column_width=True)
                 shown = True
             except Exception:
                 shown = False
@@ -106,7 +121,6 @@ def render_header():
         st.markdown('<div class="nfn-title">Prison Workshop Costing Tool</div>', unsafe_allow_html=True)
 
 
-# Allow pasting a logo URL (optional)
 with st.sidebar:
     st.header("Brand options")
     st.text_input(
@@ -116,7 +130,6 @@ with st.sidebar:
         help="Leave blank to use local file at assets/nfn_logo.png. Falls back to a text link if neither is available."
     )
 
-# Render header after sidebar input exists
 render_header()
 
 # ------------------------------
@@ -134,134 +147,40 @@ workshop_energy = {
 }
 
 # ------------------------------
-# PRISON → REGION (auto-fill mapping)
+# PRISON → REGION mapping (auto-fill)
 # ------------------------------
 PRISON_TO_REGION = {
-    "Altcourse": "National",
-    "Ashfield": "National",
-    "Askham Grange": "National",
-    "Aylesbury": "National",
-    "Bedford": "National",
-    "Belmarsh": "Inner London",
-    "Berwyn": "National",
-    "Birmingham": "National",
-    "Brinsford": "National",
-    "Bristol": "National",
-    "Brixton": "Inner London",
-    "Bronzefield": "Outer London",
-    "Buckley Hall": "National",
-    "Bullingdon": "National",
-    "Bure": "National",
-    "Cardiff": "National",
-    "Channings Wood": "National",
-    "Chelmsford": "National",
-    "Coldingley": "Outer London",
-    "Cookham Wood": "National",
-    "Dartmoor": "National",
-    "Deerbolt": "National",
-    "Doncaster": "National",
-    "Dovegate": "National",
-    "Downview": "Outer London",
-    "Drake Hall": "National",
-    "Durham": "National",
-    "East Sutton Park": "National",
-    "Eastwood Park": "National",
-    "Elmley": "National",
-    "Erlestoke": "National",
-    "Exeter": "National",
-    "Featherstone": "National",
-    "Feltham A": "Outer London",
-    "Feltham B": "Outer London",
-    "Five Wells": "National",
-    "Ford": "National",
-    "Forest Bank": "National",
-    "Fosse Way": "National",
-    "Foston Hall": "National",
-    "Frankland": "National",
-    "Full Sutton": "National",
-    "Garth": "National",
-    "Gartree": "National",
-    "Grendon": "National",
-    "Guys Marsh": "National",
-    "Hatfield": "National",
-    "Haverigg": "National",
-    "Hewell": "National",
-    "High Down": "Outer London",
-    "Highpoint": "National",
-    "Hindley": "National",
-    "Hollesley Bay": "National",
-    "Holme House": "National",
-    "Hull": "National",
-    "Humber": "National",
-    "Huntercombe": "National",
-    "Isis": "Inner London",
-    "Isle of Wight": "National",
-    "Kirkham": "National",
-    "Kirklevington Grange": "National",
-    "Lancaster Farms": "National",
-    "Leeds": "National",
-    "Leicester": "National",
-    "Lewes": "National",
-    "Leyhill": "National",
-    "Lincoln": "National",
-    "Lindholme": "National",
-    "Littlehey": "National",
-    "Liverpool": "National",
-    "Long Lartin": "National",
-    "Low Newton": "National",
-    "Lowdham Grange": "National",
-    "Maidstone": "National",
-    "Manchester": "National",
-    "Moorland": "National",
-    "Morton Hall": "National",
-    "The Mount": "National",
-    "New Hall": "National",
-    "North Sea Camp": "National",
-    "Northumberland": "National",
-    "Norwich": "National",
-    "Nottingham": "National",
-    "Oakwood": "National",
-    "Onley": "National",
-    "Parc": "National",
-    "Parc (YOI)": "National",
-    "Pentonville": "Inner London",
-    "Peterborough Female": "National",
-    "Peterborough Male": "National",
-    "Portland": "National",
-    "Prescoed": "National",
-    "Preston": "National",
-    "Ranby": "National",
-    "Risley": "National",
-    "Rochester": "National",
-    "Rye Hill": "National",
-    "Send": "National",
-    "Spring Hill": "National",
-    "Stafford": "National",
-    "Standford Hill": "National",
-    "Stocken": "National",
-    "Stoke Heath": "National",
-    "Styal": "National",
-    "Sudbury": "National",
-    "Swaleside": "National",
-    "Swansea": "National",
-    "Swinfen Hall": "National",
-    "Thameside": "Inner London",
-    "Thorn Cross": "National",
-    "Usk": "National",
-    "Verne": "National",
-    "Wakefield": "National",
-    "Wandsworth": "Inner London",
-    "Warren Hill": "National",
-    "Wayland": "National",
-    "Wealstun": "National",
-    "Werrington": "National",
-    "Wetherby": "National",
-    "Whatton": "National",
-    "Whitemoor": "National",
-    "Winchester": "National",
-    "Woodhill": "National",
-    "Wormwood Scrubs": "Inner London",
-    "Wymott": "National",
+    "Altcourse": "National", "Ashfield": "National", "Askham Grange": "National", "Aylesbury": "National",
+    "Bedford": "National", "Belmarsh": "Inner London", "Berwyn": "National", "Birmingham": "National",
+    "Brinsford": "National", "Bristol": "National", "Brixton": "Inner London", "Bronzefield": "Outer London",
+    "Buckley Hall": "National", "Bullingdon": "National", "Bure": "National", "Cardiff": "National",
+    "Channings Wood": "National", "Chelmsford": "National", "Coldingley": "Outer London", "Cookham Wood": "National",
+    "Dartmoor": "National", "Deerbolt": "National", "Doncaster": "National", "Dovegate": "National",
+    "Downview": "Outer London", "Drake Hall": "National", "Durham": "National", "East Sutton Park": "National",
+    "Eastwood Park": "National", "Elmley": "National", "Erlestoke": "National", "Exeter": "National",
+    "Featherstone": "National", "Feltham A": "Outer London", "Feltham B": "Outer London", "Five Wells": "National",
+    "Ford": "National", "Forest Bank": "National", "Fosse Way": "National", "Foston Hall": "National",
+    "Frankland": "National", "Full Sutton": "National", "Garth": "National", "Gartree": "National",
+    "Grendon": "National", "Guys Marsh": "National", "Hatfield": "National", "Haverigg": "National",
+    "Hewell": "National", "High Down": "Outer London", "Highpoint": "National", "Hindley": "National",
+    "Hollesley Bay": "National", "Holme House": "National", "Hull": "National", "Humber": "National",
+    "Huntercombe": "National", "Isis": "Inner London", "Isle of Wight": "National", "Kirkham": "National",
+    "Kirklevington Grange": "National", "Lancaster Farms": "National", "Leeds": "National", "Leicester": "National",
+    "Lewes": "National", "Leyhill": "National", "Lincoln": "National", "Lindholme": "National", "Littlehey": "National",
+    "Liverpool": "National", "Long Lartin": "National", "Low Newton": "National", "Lowdham Grange": "National",
+    "Maidstone": "National", "Manchester": "National", "Moorland": "National", "Morton Hall": "National",
+    "The Mount": "National", "New Hall": "National", "North Sea Camp": "National", "Northumberland": "National",
+    "Norwich": "National", "Nottingham": "National", "Oakwood": "National", "Onley": "National", "Parc": "National",
+    "Parc (YOI)": "National", "Pentonville": "Inner London", "Peterborough Female": "National",
+    "Peterborough Male": "National", "Portland": "National", "Prescoed": "National", "Preston": "National",
+    "Ranby": "National", "Risley": "National", "Rochester": "National", "Rye Hill": "National", "Send": "National",
+    "Spring Hill": "National", "Stafford": "National", "Standford Hill": "National", "Stocken": "National",
+    "Stoke Heath": "National", "Styal": "National", "Sudbury": "National", "Swaleside": "National", "Swansea": "National",
+    "Swinfen Hall": "National", "Thameside": "Inner London", "Thorn Cross": "National", "Usk": "National",
+    "Verne": "National", "Wakefield": "National", "Wandsworth": "Inner London", "Warren Hill": "National",
+    "Wayland": "National", "Wealstun": "National", "Werrington": "National", "Wetherby": "National",
+    "Whatton": "National", "Whitemoor": "National", "Winchester": "National", "Woodhill": "National",
+    "Wormwood Scrubs": "Inner London", "Wymott": "National",
 }
 
 # ------------------------------
@@ -276,36 +195,48 @@ if st.button("Reset App"):
         st.experimental_rerun()  # fallback for older Streamlit
 
 # ------------------------------
-# BASE INPUTS
+# BASE INPUTS (labels exactly as requested)
 # ------------------------------
 
-# Prison choice + auto region
+# Prison Name (dropdown) + auto Region (read-only)
 prisons_sorted = ["Select"] + sorted(PRISON_TO_REGION.keys())
-prison_choice = st.selectbox("Prison?", prisons_sorted, index=0)
+prison_choice = st.selectbox("Prison Name", prisons_sorted, index=0)
 
 if prison_choice == "Select":
     region = "Select"
 else:
     region = PRISON_TO_REGION.get(prison_choice, "Select")
 
-# Region read-only display
-st.text_input("Region (auto)", value=("" if region == "Select" else region), disabled=True)
+st.text_input("Region", value=("" if region == "Select" else region), disabled=True)
 
-customer_type = st.selectbox("Quote for a?", ["Select", "Commercial", "Another Government Department"])
-customer_name = st.text_input("Customer?")
+# "I want to quote for" and "Customer Name"
+customer_type = st.selectbox("I want to quote for", ["Select", "Commercial", "Another Government Department"])
+customer_name = st.text_input("Customer Name")
+
+# Contract + size (sq ft categories)
 workshop_mode = st.selectbox("Contract type?", ["Select", "Host", "Production"])
-workshop_size = st.selectbox(
-    "Workshop size?",
-    ["Select", "Small (~25 prisoners)", "Medium (~50 prisoners)", "Large (~75 prisoners)", "Enter dimensions in ft"]
-)
+
+SIZE_LABELS = [
+    "Select",
+    "Small (~2,500 ft², ~50×50 ft)",
+    "Medium (~5,000 ft²)",
+    "Large (~10,000 ft²)",
+    "Enter dimensions in ft",
+]
+size_map = {
+    "Small (~2,500 ft², ~50×50 ft)": 2500,
+    "Medium (~5,000 ft²)": 5000,
+    "Large (~10,000 ft²)": 10000,
+}
+workshop_size = st.selectbox("Workshop size (sq ft)?", SIZE_LABELS)
 
 # Area
 if workshop_size == "Enter dimensions in ft":
     width = st.number_input("Width (ft)", min_value=0.0, format="%.2f", key="width")
     length = st.number_input("Length (ft)", min_value=0.0, format="%.2f", key="length")
     area = width * length
+    st.markdown(f"**Calculated area:** {area:,.0f} ft²")
 else:
-    size_map = {"Small (~25 prisoners)": 900, "Medium (~50 prisoners)": 1600, "Large (~75 prisoners)": 2500}
     area = size_map.get(workshop_size, 0)
 
 workshop_type = st.selectbox("Workshop type?", ["Select"] + list(workshop_energy.keys()))
@@ -326,7 +257,6 @@ if not customer_covers_supervisors:
         )
         supervisor_salaries.append(sup_salary)
     contracts = st.number_input("How many contracts do these supervisors oversee?", min_value=1, value=1)
-    # avoid division by zero (workshop_hours may be 0 yet - recommended_pct stays sensible)
     recommended_pct = round((workshop_hours / 37.5) * (1 / contracts) * 100, 1) if contracts and workshop_hours >= 0 else 0
     st.subheader("Supervisor Time Allocation")
     st.info(f"Recommended: {recommended_pct}%")
@@ -350,7 +280,7 @@ if not customer_covers_supervisors and chosen_pct < recommended_pct:
     reason_for_low_pct = st.text_area("Explain why choosing lower supervisor % allocation:")
 
 # ------------------------------
-# VALIDATION (updated for prison/region auto-fill)
+# VALIDATION
 # ------------------------------
 def validate_inputs():
     errors = []
@@ -391,7 +321,6 @@ def calculate_host_costs():
     breakdown["Prisoner wages (monthly)"] = num_prisoners * prisoner_salary * (52/12)
     supervisor_cost = 0
     if not customer_covers_supervisors:
-        # monthly supervisor cost apportioned
         supervisor_cost = sum([(s/12) * (chosen_pct / 100) for s in supervisor_salaries])
         breakdown["Supervisors (monthly)"] = supervisor_cost
     if workshop_type in workshop_energy:
@@ -418,17 +347,16 @@ def calculate_production(items):
       - MinUnitsWeek: maximum units per week (float)
     """
     results = []
-    # weekly supervisor cost (portion allocated)
     sup_weekly = sum([(s/52) * (chosen_pct / 100) for s in supervisor_salaries]) if not customer_covers_supervisors else 0.0
     prisoner_weekly = num_prisoners * prisoner_salary  # prisoner_salary is per week
     total_weekly_cost = prisoner_weekly + sup_weekly
 
     for item in items:
         name = item.get("name", "").strip() or "(Unnamed)"
-        mins_per_unit = float(item.get("minutes", 0))         # minutes to make 1 item
-        prisoners_required = int(item.get("required", 1))     # prisoners required to make 1 item
-        prisoners_assigned = int(item.get("assigned", 0))     # prisoners assigned solely to this item
-        # safeguards
+        mins_per_unit = float(item.get("minutes", 0))
+        prisoners_required = int(item.get("required", 1))
+        prisoners_assigned = int(item.get("assigned", 0))
+
         if mins_per_unit <= 0 or prisoners_required <= 0 or prisoners_assigned <= 0 or workshop_hours <= 0:
             capacity_week = 0.0
             unit_cost = None
@@ -467,13 +395,12 @@ if workshop_mode == "Host":
             st.error("Fix errors:\n- " + "\n- ".join(errors))
         else:
             st.subheader("Host Contract Costs")
-            breakdown, total = calculate_host_costs()
+            breakdown, _ = calculate_host_costs()
             display_table(breakdown)
 
 elif workshop_mode == "Production":
     st.subheader("Production Contract Costs")
 
-    # item inputs (always shown when Production selected)
     num_items = st.number_input("Number of items produced?", min_value=1, value=1, step=1, key="num_items_prod")
     items = []
     for i in range(int(num_items)):
@@ -496,29 +423,24 @@ elif workshop_mode == "Production":
                 "assigned": int(prisoners_assigned)
             })
 
-    # only compute and show production results when base inputs validated (so slider UI persists)
     if errors:
         st.error("Fix errors before production calculations:\n- " + "\n- ".join(errors))
     else:
         results = calculate_production(items)
 
-        # display each item: Unit cost and minimum units/week. Show slider to pick output % of capacity.
         for i, r in enumerate(results):
             st.markdown(f"### {r['Item']}")
-            # Unit cost
             if r["Unit Cost"] is None:
                 st.write("- Unit Cost (£): **N/A** (insufficient capacity or missing inputs)")
             else:
                 st.write(f"- Unit Cost (£): £{r['Unit Cost']:.2f}")
 
-            # Min units/week (capacity)
             cap = r["MinUnitsWeek"]
             if cap <= 0:
                 st.write("- Units/week (capacity): **0** — check minutes/prisoners assigned/workshop hours")
             else:
                 st.write(f"- Units/week (capacity): {cap:.0f}")
 
-            # Output slider
             percent = st.slider(f"Output % for Item {i+1}", min_value=0, max_value=100, value=100, key=f"percent_{i}")
             adjusted_units = int(round(cap * (percent / 100.0))) if cap > 0 else 0
             st.write(f"- Adjusted units/week at {percent}% output: {adjusted_units}")
