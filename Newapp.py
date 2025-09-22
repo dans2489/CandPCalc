@@ -23,53 +23,35 @@ workshop_energy = {
 }
 
 # ------------------------------
-# CUSTOM CSS
-# ------------------------------
-st.markdown("""
-<style>
-.main { background-color: #ffffff; color: #0b0c0c; }
-.stApp h1 { color: #005ea5; font-weight: bold; margin-bottom: 20px; }
-.stApp h2, .stApp h3 { color: #005ea5; margin-top: 15px; margin-bottom: 10px; }
-div.stButton > button:first-child { background-color: #10703c; color: white; font-weight: bold; padding: 6px 12px; border-radius: 4px; margin-top: 10px; margin-bottom: 10px; }
-div.stTextInput > label, div.stNumberInput > label, div.stSelectbox > label, div.stRadio > label { font-weight: bold; margin-bottom: 5px; }
-.stSlider > div > div:nth-child(1) > div > div > div { color: #005ea5; }
-.stForm, .stContainer { box-shadow: 0 0 5px #e1e1e1; padding: 12px 15px; border-radius: 5px; margin-bottom: 15px; }
-table { width: 100%; border-collapse: collapse; }
-table th { background-color: #f3f2f1; text-align: left; padding: 8px; border-bottom: 2px solid #b1b4b6; }
-table td { padding: 8px; border-bottom: 1px solid #e1e1e1; }
-table tr.total-row { font-weight: bold; background-color: #e6f0fa; }
-</style>
-""", unsafe_allow_html=True)
-
-# ------------------------------
 # TITLE
 # ------------------------------
-st.title("Cost and Pricing Calculator")
+st.title("Cost and Price Calculator")
 
 # ------------------------------
 # RESET BUTTON
 # ------------------------------
 if st.button("Reset App"):
-    for key in st.session_state.keys():
+    for key in list(st.session_state.keys()):
         del st.session_state[key]
     st.experimental_rerun()
 
 # ------------------------------
-# INPUTS
+# BASE INPUTS
 # ------------------------------
 region = st.selectbox("Region?", ["Select", "National", "Inner London", "Outer London"])
 prison_name = st.text_input("Prison Name")
 customer_type = st.selectbox("Quote for a?", ["Select", "Commercial", "Another Government Department"])
 customer_name = st.text_input("Customer?")
 workshop_mode = st.selectbox("Contract type?", ["Select", "Host", "Production"])
-workshop_size = st.selectbox("Workshop size?", ["Select", "Small (Classroom ~25 prisoners)", "Medium (~50 prisoners)", "Large (~75 prisoners)", "Enter dimensions in ft"])
-area = 0
+workshop_size = st.selectbox("Workshop size?", ["Select", "Small (~25 prisoners)", "Medium (~50 prisoners)", "Large (~75 prisoners)", "Enter dimensions in ft"])
+
+# Area
 if workshop_size == "Enter dimensions in ft":
     width = st.number_input("Width (ft)", min_value=0.0, format="%.2f")
     length = st.number_input("Length (ft)", min_value=0.0, format="%.2f")
     area = width * length
 else:
-    size_map = {"Small (Classroom ~25 prisoners)": 900, "Medium (~50 prisoners)": 1600, "Large (~75 prisoners)": 2500}
+    size_map = {"Small (~25 prisoners)": 900, "Medium (~50 prisoners)": 1600, "Large (~75 prisoners)": 2500}
     area = size_map.get(workshop_size, 0)
 
 workshop_type = st.selectbox("Workshop type?", ["Select"] + list(workshop_energy.keys()))
@@ -79,7 +61,7 @@ num_prisoners = st.number_input("How many prisoners employed?", min_value=0)
 prisoner_salary = st.number_input("Prisoner salary per week (£)", min_value=0.0, format="%.2f")
 
 num_supervisors = st.number_input("How many supervisors?", min_value=0)
-customer_covers_supervisors = st.checkbox("Customer provides supervisor(s) (no salary cost to prison)?")
+customer_covers_supervisors = st.checkbox("Customer provides supervisor(s)?")
 
 supervisor_salaries = []
 if not customer_covers_supervisors:
@@ -131,18 +113,15 @@ def validate_inputs():
     return errors
 
 # ------------------------------
-# COST CALCULATIONS
+# HOST COSTS
 # ------------------------------
 def calculate_host_costs():
     breakdown = {}
-    # Prisoner wages
     breakdown["Prisoner wages"] = num_prisoners * prisoner_salary * (52/12)
-    # Supervisors
     supervisor_cost = 0
     if not customer_covers_supervisors:
         supervisor_cost = sum([(s/12)*(chosen_pct/100) for s in supervisor_salaries])
         breakdown["Supervisors"] = supervisor_cost
-    # Utilities
     if workshop_type in workshop_energy:
         e = workshop_energy[workshop_type]
         hours_factor = workshop_hours / 37.5
@@ -157,27 +136,34 @@ def calculate_host_costs():
     return breakdown, sum(breakdown.values())
 
 # ------------------------------
-# Production calculations
+# PRODUCTION COSTS
 # ------------------------------
 def calculate_production(items):
     results=[]
     sup_monthly = sum([(s/12)*(chosen_pct/100) for s in supervisor_salaries]) if not customer_covers_supervisors else 0
     prisoner_monthly = num_prisoners*prisoner_salary*(52/12)
+
     for item in items:
         name = item["name"]
         mins_per_unit = item["minutes"]
+        prisoners_required = item["required"]
         prisoners_assigned = item["assigned"]
+
+        # Available minutes from assigned prisoners
         available_mins = prisoners_assigned * workshop_hours * 60 * (52/12)
-        max_units = available_mins / mins_per_unit if mins_per_unit>0 else 0
+        max_units = available_mins / (mins_per_unit * prisoners_required) if mins_per_unit>0 else 0
+
         total_cost = sup_monthly + prisoner_monthly
         unit_cost = total_cost / max(max_units,1)
+
         weekly_cost = total_cost*(12/52)
         min_units_week = weekly_cost / unit_cost if unit_cost>0 else 0
+
         results.append({
             "Item": name,
             "Unit Cost (£)": round(unit_cost,2),
             "Min Units/Week": round(min_units_week,0),
-            "Max Units/Week": round(max_units/4.33,0)
+            "Max Units/Month": round(max_units,0)
         })
     return results
 
@@ -212,10 +198,12 @@ elif workshop_mode=="Production":
     for i in range(num_items):
         with st.expander(f"Item {i+1} details"):
             name = st.text_input(f"Item {i+1} Name", key=f"name_{i}")
-            minutes_per_item = st.number_input(f"Minutes per unit", min_value=1.0, key=f"mins_{i}")
-            prisoners_assigned = st.number_input(f"Prisoners assigned to this item", min_value=1, max_value=num_prisoners, key=f"assigned_{i}")
+            prisoners_required = st.number_input("Prisoners required to make 1 item", min_value=1, key=f"req_{i}")
+            minutes_per_item = st.number_input("Minutes to make 1 item", min_value=1.0, key=f"mins_{i}")
+            prisoners_assigned = st.number_input("How many prisoners work solely on this item", min_value=1, max_value=num_prisoners, key=f"assigned_{i}")
             items.append({
                 "name": name,
+                "required": prisoners_required,
                 "minutes": minutes_per_item,
                 "assigned": prisoners_assigned
             })
@@ -226,11 +214,11 @@ elif workshop_mode=="Production":
             st.error("Fix errors:\n- " + "\n- ".join(errors))
         else:
             results = calculate_production(items)
-            for r in results:
+            for i, r in enumerate(results):
                 st.write(f"**{r['Item']}**")
                 st.write(f"- Unit Cost (£): £{r['Unit Cost (£)']:.2f}")
                 st.write(f"- Minimum units/week to cover costs: {r['Min Units/Week']}")
-                st.write(f"- Maximum units/week: {r['Max Units/Week']}")
-                percent = st.slider(f"Output % for {r['Item']}", min_value=0, max_value=100, value=100, key=f"percent_{r['Item']}")
-                adjusted_units = round(r['Max Units/Week']*percent/100,0)
-                st.write(f"- Adjusted units/week at {percent}% output: {adjusted_units}")
+                st.write(f"- Maximum units/month (capacity): {r['Max Units/Month']}")
+                percent = st.slider(f"Output % for {r['Item']}", 0, 100, 100, key=f"percent_{i}")
+                adjusted_units = round(r['Max Units/Month']*percent/100,0)
+                st.write(f"- Adjusted units/month at {percent}% output: {adjusted_units}")
