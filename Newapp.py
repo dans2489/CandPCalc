@@ -3,30 +3,27 @@ import streamlit as st
 # ------------------------------
 # PAGE CONFIG
 # ------------------------------
-st.set_page_config(
-    page_title="Prison Workshop Costing Tool",
-    layout="wide",
-)
+st.set_page_config(page_title="Prison Workshop Costing Tool", layout="wide")
 
 # ------------------------------
-# 2025 COMMERCIAL AVERAGES (UK GOV DATA)
+# COMMERCIAL UTILITY TARIFFS (2025 AVERAGES, UK GOV DATA)
 # ------------------------------
 ELECTRICITY_RATE = 0.25   # £/kWh
 GAS_RATE = 0.07           # £/kWh
-WATER_RATE = 2.00         # £/m³
+WATER_RATE = 2.00         # £/m³ (approx commercial average)
 
 # ------------------------------
-# WORKSHOP ENERGY INTENSITY (kWh/m²/year)
+# WORKSHOP TYPE ENERGY INTENSITY (kWh/m²/year)
 # ------------------------------
 workshop_energy = {
-    "Empty/basic": {"electric": 40, "gas": 10, "water": 0.55},
-    "Low energy": {"electric": 70, "gas": 20, "water": 0.55},
-    "Medium energy": {"electric": 115, "gas": 40, "water": 0.55},
-    "High energy": {"electric": 170, "gas": 70, "water": 0.55},
+    "Workshop (Empty/basic)": {"electric": 40, "gas": 10, "water": 0.55},
+    "Workshop (Low energy)": {"electric": 70, "gas": 20, "water": 0.55},
+    "Workshop (Medium energy)": {"electric": 115, "gas": 40, "water": 0.55},
+    "Workshop (High energy)": {"electric": 170, "gas": 70, "water": 0.55},
 }
 
 # ------------------------------
-# CUSTOM GOV STYLE CSS
+# CUSTOM CSS FOR GOV STYLE
 # ------------------------------
 st.markdown("""
 <style>
@@ -47,7 +44,7 @@ table tr.total-row { font-weight: bold; background-color: #e6f0fa; }
 # ------------------------------
 # APP TITLE
 # ------------------------------
-st.title("Cost and Price Calculator")
+st.title("Prison Workshop Costing Tool")
 
 # ------------------------------
 # INPUTS
@@ -57,24 +54,18 @@ prison_name = st.text_input("Prison Name")
 customer_type = st.radio("Quote for a?", ["Select", "Commercial", "Another Government Department"], index=0)
 customer_name = st.text_input("Customer?")
 workshop_mode = st.radio("Contract type?", ["Select", "Host", "Production"], index=0)
-workshop_size = st.selectbox("Workshop size?", ["Select", "Small (classroom ~25 prisoners)", "Medium (~50 prisoners)", "Large (~75+ prisoners)", "Enter dimensions"], index=0)
+workshop_size = st.selectbox("Workshop size?", ["Select", "Small", "Medium", "Large", "Enter dimensions (ft²)"], index=0)
 
-# ------------------------------
-# AREA CALCULATION
-# ------------------------------
+# Area
 area = 0
-if workshop_size == "Enter dimensions":
+if workshop_size == "Enter dimensions (ft²)":
     width = st.number_input("Width (ft)", min_value=0.0, format="%.2f", value=0.0)
     length = st.number_input("Length (ft)", min_value=0.0, format="%.2f", value=0.0)
     if width > 0 and length > 0:
         area = width * length
 else:
-    size_map = {
-        "Small (classroom ~25 prisoners)": 900,
-        "Medium (~50 prisoners)": 1800,
-        "Large (~75+ prisoners)": 2700
-    }
-    area = size_map.get(workshop_size, 0)
+    area_map = {"Small": 60, "Medium": 150, "Large": 300}  # approximate sq ft
+    area = area_map.get(workshop_size, 0)
 
 workshop_type = st.selectbox("Workshop type?", ["Select"] + list(workshop_energy.keys()), index=0)
 workshop_hours = st.number_input("How many hours per week is it open?", min_value=0.0, format="%.2f", value=0.0)
@@ -92,9 +83,22 @@ if not customer_covers_supervisors:
     for i in range(num_supervisors):
         sup_salary = st.number_input(f"Supervisor {i+1} annual salary (£)", min_value=0.0, format="%.2f", value=0.0)
         supervisor_salaries.append(sup_salary)
-    contracts = st.number_input("How many contracts do these supervisors oversee?", min_value=0, value=0)
+    contracts = st.number_input("How many contracts do these supervisors oversee?", min_value=1, value=1)
+    # Supervisor % allocation visible only if supervisors not provided
+    if workshop_hours > 0 and contracts > 0:
+        st.subheader("Supervisor Time Allocation")
+        recommended_pct = round((workshop_hours / 37.5) * (1 / contracts) * 100, 1)
+        st.info(f"{recommended_pct}% recommended supervisor allocation")
+        chosen_pct = st.slider("Adjust supervisor % allocation", 0, 100, int(recommended_pct), step=1)
+        reason_for_low_pct = ""
+        if chosen_pct < recommended_pct:
+            reason_for_low_pct = st.text_area("Please explain why you are choosing a lower percentage:")
+else:
+    chosen_pct = 100  # default 100% if customer provides supervisors
+    recommended_pct = 100
+    reason_for_low_pct = ""
 
-# Employment support
+# Employment support (for commercial)
 support = None
 dev_charge = 0.0
 if customer_type == "Commercial":
@@ -110,19 +114,6 @@ if customer_type == "Commercial":
             dev_charge = 0.10
         else:
             dev_charge = 0.0
-
-# Supervisor % allocation
-if not customer_covers_supervisors and workshop_hours > 0 and num_supervisors > 0 and contracts > 0:
-    st.subheader("Supervisor Time Allocation")
-    recommended_pct = round((workshop_hours / 37.5) * (1 / contracts) * 100, 1)
-    st.info(f"{recommended_pct}% recommended supervisor allocation")
-    chosen_pct = st.slider("Adjust supervisor % allocation", 0, 100, int(recommended_pct), step=1)
-else:
-    chosen_pct = 0
-
-reason_for_low_pct = ""
-if not customer_covers_supervisors and chosen_pct < recommended_pct:
-    reason_for_low_pct = st.text_area("Please explain why you are choosing a lower percentage:")
 
 # ------------------------------
 # VALIDATION
@@ -156,8 +147,6 @@ def validate_inputs():
             errors.append("Please enter the number of supervisors.")
         if not supervisor_salaries or any(s <= 0 for s in supervisor_salaries):
             errors.append("Please enter all supervisor salaries.")
-        if contracts <= 0:
-            errors.append("Please enter the number of contracts overseen.")
         if chosen_pct < recommended_pct and not reason_for_low_pct.strip():
             errors.append("Please provide a reason for choosing a lower supervisor % allocation.")
     return errors
@@ -178,7 +167,7 @@ def calculate_host_costs():
     # Utilities
     if workshop_type in workshop_energy:
         factors = workshop_energy[workshop_type]
-        hours_factor = workshop_hours / 37.5  # scale per hours open
+        hours_factor = workshop_hours / 37.5
         electric_cost = area * (factors["electric"]/12) * ELECTRICITY_RATE * hours_factor
         gas_cost = area * (factors["gas"]/12) * GAS_RATE * hours_factor
         water_cost = area * (factors["water"]/12) * WATER_RATE * hours_factor
@@ -226,12 +215,12 @@ def display_gov_table(breakdown, total_label="Total Monthly Cost"):
     st.markdown(html_table, unsafe_allow_html=True)
 
 # ------------------------------
-# GENERATE COST BUTTON
+# RUN CALCULATIONS
 # ------------------------------
 if st.button("Generate Costing"):
     errors = validate_inputs()
     if errors:
-        st.error("Please fix the following:\n- " + "\n- ".join(errors))
+        st.error("Please fix the following before continuing:\n- " + "\n- ".join(errors))
     else:
         if workshop_mode == "Host":
             st.subheader("Host Contract Costing")
@@ -242,12 +231,13 @@ if st.button("Generate Costing"):
             num_items = st.number_input("How many different items are produced?", min_value=1, value=1)
             items = []
             for i in range(num_items):
-                name = st.text_input(f"Item {i+1} name", key=f"name_{i}")
-                mins_per_unit = st.number_input(f"Minutes to make one {name}", min_value=1.0, format="%.1f", key=f"mins_{i}")
-                prisoners_on_item = st.number_input(f"How many prisoners work on {name}?", min_value=1, key=f"prisoners_{i}")
+                name = st.text_input(f"Item {i+1} name")
+                mins_per_unit = st.number_input(f"Minutes to make one {name}", min_value=1.0, format="%.1f")
+                prisoners_on_item = st.number_input(f"How many prisoners work on {name}?", min_value=1)
                 items.append((name, mins_per_unit, prisoners_on_item))
-            if st.button("Calculate Production Costs", key="calc_prod"):
+            if st.button("Calculate Production Costs"):
                 results = calculate_production_items(items)
+                st.subheader("Production Results")
                 for r in results:
                     st.write(f"**{r['Item']}**")
                     st.write(f"- Unit Cost (£): £{r['Unit Cost (£)']:.2f}")
