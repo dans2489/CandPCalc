@@ -45,13 +45,7 @@ table tr.total-row { font-weight: bold; background-color: #e6f0fa; }
 """, unsafe_allow_html=True)
 
 # ------------------------------
-# LOGO + TITLE
-# ------------------------------
-col1, col2 = st.columns([1, 4])
-with col1:
-    st.image("logo.png", width=120)  # ensure logo.png is in same folder
-with col2:
-    st.title("Prison Workshop Costing Tool")
+    st.title("Cost and Price Calculator")
 
 # ------------------------------
 # INPUTS
