@@ -1,18 +1,16 @@
 # Cost and Price Calculator — Streamlit app
-# v2.4 (2025-09-22)
-# Implemented changes:
-# - Title set to "Cost and Price Calculator"; header font 2.05rem.
-# - When "Host" is selected, no Production settings/sections are shown.
-# - Host summary: "Host Contract for [Customer Name] Costs are per month."
-# - Remove "(monthly)" from line items; keep "(estimated)" for utilities (not wages).
-# - If development charge is £0, highlight reduction due to support offered.
-# - Remove all Excel exports; keep CSV and PDF-ready HTML only.
+# v2.6 (2025-09-22)
+# Updates for Dan:
+# - Reset App button styled RED (GOV.UK red) with white text; other buttons remain GOV.UK green.
+# - "Depreciation/Maintenance (estimated)" label in summary (Host table).
+# - Host vs Production separation retained; Excel removed; VAT logic unchanged.
 
 from io import BytesIO
 import pandas as pd
 import streamlit as st
+
 # -----------------------------
-# Page config + simple theming
+# Page config + theming
 # -----------------------------
 st.set_page_config(
     page_title="Cost and Price Calculator",
@@ -22,7 +20,12 @@ st.set_page_config(
 )
 
 NFN_BLUE = "#1D428A"
+GOV_GREEN = "#00703C"
+GOV_GREEN_DARK = "#005A30"
+GOV_RED = "#D4351C"
+GOV_RED_DARK = "#942514"
 
+# Header + button theming
 st.markdown(
     f"""
     <style>
@@ -34,10 +37,42 @@ st.markdown(
       }}
       .app-title {{
         color:#fff;
-        font-size:2.05rem; /* per request */
+        font-size:2.05rem;
         line-height:1.1;
         margin:0;
       }}
+
+      /* Default buttons: GOV.UK green */
+      div.stButton > button[kind="primary"],
+      div.stDownloadButton > button[kind="primary"],
+      div.stButton > button,
+      div.stDownloadButton > button {{
+        background-color: {GOV_GREEN} !important;
+        color: #fff !important;
+        border: 1px solid {GOV_GREEN_DARK} !important;
+        border-radius: 6px !important;
+      }}
+      div.stButton > button:hover,
+      div.stDownloadButton > button:hover {{
+        background-color: {GOV_GREEN_DARK} !important;
+        border-color: {GOV_GREEN_DARK} !important;
+        color: #fff !important;
+      }}
+
+      /* Reset button only (red) */
+      .reset-btn button {{
+        background-color: {GOV_RED} !important;
+        color: #fff !important;
+        border: 1px solid {GOV_RED_DARK} !important;
+        border-radius: 6px !important;
+      }}
+      .reset-btn button:hover {{
+        background-color: {GOV_RED_DARK} !important;
+        border-color: {GOV_RED_DARK} !important;
+        color: #fff !important;
+      }}
+
+      /* Tables */
       table {{
         width: 100%;
         border-collapse: collapse;
@@ -57,8 +92,13 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# Optional: quick reset
-if st.button("Reset App"):
+# -----------------------------
+# Reset App (RED button only)
+# -----------------------------
+st.markdown('<div class="reset-btn">', unsafe_allow_html=True)
+reset_clicked = st.button("Reset App", key="reset_app")
+st.markdown('</div>', unsafe_allow_html=True)
+if reset_clicked:
     for k in list(st.session_state.keys()):
         del st.session_state[k]
     try:
@@ -73,7 +113,7 @@ ELECTRICITY_RATE_DEFAULT = 0.22  # £/kWh
 GAS_RATE_DEFAULT = 0.05          # £/kWh
 WATER_RATE_DEFAULT = 2.00        # £/m³
 
-# Evidence-aligned (illustrative) EUI map (kWh/m²/year)
+# (Illustrative) EUI map (kWh/m²/year)
 EUI_MAP = {
     "Empty/basic (warehouse)": {"electric_kwh_m2_y": 35, "gas_kwh_m2_y": 30},
     "Light industrial":        {"electric_kwh_m2_y": 45, "gas_kwh_m2_y": 60},
@@ -81,7 +121,7 @@ EUI_MAP = {
     "High energy process":     {"electric_kwh_m2_y": 60, "gas_kwh_m2_y": 100},
 }
 
-# Full Prison → Region mapping (restored)
+# Full Prison → Region mapping
 PRISON_TO_REGION = {
     "Altcourse": "National", "Ashfield": "National", "Askham Grange": "National",
     "Aylesbury": "National", "Bedford": "National", "Belmarsh": "Inner London",
@@ -146,35 +186,28 @@ with st.sidebar:
     )
 
     st.markdown("---")
-
+    st.markdown("**Maintenance / Depreciation**")
     maint_method = st.radio(
-        "Maintenance/Depreciation method",
-        ["Set a fixed monthly amount", "% of reinstatement value", "£/m² per year"],
-        index=2,
+        "Method",
+        ["£/m² per year (industry standard)", "Set a fixed monthly amount", "% of reinstatement value"],
+        index=0,  # industry standard default
     )
     maint_monthly = 0.0
-    if maint_method == "Set a fixed monthly amount":
-        maint_monthly = st.number_input(
-            "Maintenance", min_value=0.0, value=0.0, step=50.0
-        )
-    elif maint_method == "% of reinstatement value":
-        reinstatement_value = st.number_input(
-            "Reinstatement value (£)", min_value=0.0, value=0.0, step=10_000.0
-        )
-        percent = st.number_input(
-            "Annual % of reinstatement value", min_value=0.0, value=2.0, step=0.25, format="%.2f"
-        )
-        maint_monthly = (reinstatement_value * (percent / 100.0)) / 12.0
-    else:  # £/m² per year
+    if maint_method.startswith("£/m² per year"):
         rate_per_m2_y = st.number_input(
-            "Maintenance rate (£/m²/year)", min_value=0.0, value=15.0, step=1.0
+            "Maintenance rate (£/m²/year)",
+            min_value=0.0, value=15.0, step=1.0
         )
         st.session_state["maint_rate_per_m2_y"] = rate_per_m2_y
+    elif maint_method == "Set a fixed monthly amount":
+        maint_monthly = st.number_input("Maintenance", min_value=0.0, value=0.0, step=50.0)
+    else:  # % of reinstatement value
+        reinstatement_value = st.number_input("Reinstatement value (£)", min_value=0.0, value=0.0, step=10_000.0)
+        percent = st.number_input("Annual % of reinstatement value", min_value=0.0, value=2.0, step=0.25, format="%.2f")
+        maint_monthly = (reinstatement_value * (percent / 100.0)) / 12.0
 
     st.markdown("---")
-    admin_monthly = st.number_input(
-        "Administration", min_value=0.0, value=150.0, step=25.0
-    )
+    admin_monthly = st.number_input("Administration", min_value=0.0, value=150.0, step=25.0)
 
 # -------------
 # Base inputs
@@ -295,8 +328,9 @@ def validate_inputs():
         errors.append("Select workshop type")
     if area_ft2 <= 0:
         errors.append("Area must be greater than zero")
-    if workshop_hours <= 0:
-        errors.append("Hours per week must be > 0")
+    # Hours only required for Production mode
+    if workshop_mode == "Production" and workshop_hours <= 0:
+        errors.append("Hours per week must be > 0 (Production)")
     if num_prisoners <= 0:
         errors.append("Enter prisoners employed (>0)")
     if prisoner_salary <= 0:
@@ -312,9 +346,7 @@ def validate_inputs():
 # Cost helpers
 # ----------------
 def monthly_energy_costs():
-    """
-    EUI (kWh/m²/y) × area (m²) × tariff ÷ 12.
-    """
+    """EUI (kWh/m²/y) × area (m²) × tariff ÷ 12."""
     eui = EUI_MAP.get(workshop_type, None)
     if not eui or area_m2 <= 0:
         return 0.0, 0.0
@@ -325,9 +357,7 @@ def monthly_energy_costs():
     return elec_cost_m, gas_cost_m
 
 def monthly_water_costs():
-    """
-    Simple people-based benchmark: ~15 L/person/day, 5 days/week.
-    """
+    """Simple people-based benchmark: ~15 L/person/day, 5 days/week."""
     persons = num_prisoners + (0 if customer_covers_supervisors else num_supervisors)
     litres_per_day = 15.0
     days_per_week = 5.0
@@ -338,8 +368,9 @@ def monthly_water_costs():
 def weekly_overheads_total():
     """
     Electricity, gas, water, admin, maintenance → weekly total + monthly breakdown.
+    (Maintenance labeled as estimated for consistency with overheads.)
     """
-    if maint_method == "£/m² per year":
+    if maint_method.startswith("£/m² per year"):
         rate = st.session_state.get("maint_rate_per_m2_y", 15.0)
         maint_m = (rate * area_m2) / 12.0
     else:
@@ -354,25 +385,25 @@ def weekly_overheads_total():
         "Gas (estimated)": gas_m,
         "Water (estimated)": water_m,
         "Administration": admin_monthly,
-        "Depreciation/Maintenance": maint_m,
+        "Depreciation/Maintenance (estimated)": maint_m,
     }
 
 # ----------------
-# Host costs
+# Host costs (monthly)
 # ----------------
 def calculate_host_costs():
     breakdown = {}
 
-    # Prisoner wages (values are per month)
+    # Prisoner wages (per month) — not estimated
     breakdown["Prisoner wages"] = num_prisoners * prisoner_salary * (52 / 12)
 
-    # Supervisors (apportioned to this contract via chosen_pct)
+    # Supervisors apportioned to this contract (per month) — not estimated
     supervisor_cost = 0.0
     if not customer_covers_supervisors:
-        supervisor_cost = sum([(s / 12) * (chosen_pct / 100) for s in supervisor_salaries])
+        supervisor_cost = sum((s / 12) * (chosen_pct / 100) for s in supervisor_salaries)
     breakdown["Supervisors"] = supervisor_cost
 
-    # Overheads (retain "estimated" only on utilities)
+    # Overheads (utilities are estimated; admin is not; maintenance now estimated)
     elec_m, gas_m = monthly_energy_costs()
     water_m = monthly_water_costs()
     breakdown["Electricity (estimated)"] = elec_m
@@ -380,17 +411,16 @@ def calculate_host_costs():
     breakdown["Water (estimated)"] = water_m
     breakdown["Administration"] = admin_monthly
 
-    if maint_method == "£/m² per year":
+    if maint_method.startswith("£/m² per year"):
         rate = st.session_state.get("maint_rate_per_m2_y", 15.0)
-        breakdown["Depreciation/Maintenance"] = (rate * area_m2) / 12.0
+        breakdown["Depreciation/Maintenance (estimated)"] = (rate * area_m2) / 12.0
     else:
-        breakdown["Depreciation/Maintenance"] = maint_monthly
+        breakdown["Depreciation/Maintenance (estimated)"] = maint_monthly
 
-    # Development charge (Commercial only), proportion of supervisor cost
+    # Development charge (Commercial only). If £0, explicitly note reduction.
     if customer_type == "Commercial":
         dev_amount = supervisor_cost * dev_charge
         if dev_charge == 0.0:
-            # Explicitly show the reduction due to support offered
             breakdown["Development charge — reduced to £0 due to support offered"] = 0.0
         else:
             breakdown["Development charge"] = dev_amount
@@ -410,20 +440,17 @@ def calculate_host_costs():
     return breakdown, totals
 
 # --------------------------
-# Production (weekly logic)
+# Production (weekly model)
 # --------------------------
 def calculate_production(items: list[dict], output_percents: list[int], apportion_rule: str):
     """
-    For each item:
-      - Allocates weekly overheads and supervisor cost by selected rule.
-      - Computes weekly capacity at 100% output.
-      - Applies Output % to get actual units/week.
-      - Unit Cost = (weekly costs for the item) / (actual units/week).
-      - Prices: Unit Price ex VAT = Unit Cost; inc VAT = ex VAT × (1 + VAT%) if Commercial & VAT on.
+    Weekly model:
+      weekly_cost = prisoner_weekly + apportioned_supervisors_weekly + apportioned_overheads_weekly
+      unit_cost   = weekly_cost / (units/week at Output %)
     """
     overheads_weekly, _detail = weekly_overheads_total()
     sup_weekly_total = (
-        sum([(s / 52) * (chosen_pct / 100) for s in supervisor_salaries])
+        sum((s / 52) * (chosen_pct / 100) for s in supervisor_salaries)
         if not customer_covers_supervisors else 0.0
     )
 
@@ -443,7 +470,7 @@ def calculate_production(items: list[dict], output_percents: list[int], apportio
         prisoners_assigned = int(item.get("assigned", 0))
         output_pct = int(output_percents[idx]) if idx < len(output_percents) else 100
 
-        # Capacity at 100%
+        # Capacity @100%
         if mins_per_unit <= 0 or prisoners_required <= 0 or prisoners_assigned <= 0 or workshop_hours <= 0:
             capacity_week = 0.0
         else:
@@ -451,14 +478,14 @@ def calculate_production(items: list[dict], output_percents: list[int], apportio
             minutes_per_unit_total = mins_per_unit * prisoners_required
             capacity_week = available_mins_week / minutes_per_unit_total if minutes_per_unit_total > 0 else 0.0
 
-        # Apportionment share
+        # Share for apportionment
         if denom > 0:
             share_num = (prisoners_assigned * workshop_hours * 60.0) if apportion_rule.startswith("By labour minutes") else prisoners_assigned
             share = share_num / denom
         else:
             share = 0.0
 
-        # Weekly cost for this item
+        # Weekly cost components
         prisoner_weekly_item = prisoners_assigned * prisoner_salary
         sup_weekly_item = sup_weekly_total * share
         overheads_weekly_item = overheads_weekly * share
@@ -599,22 +626,21 @@ def export_html(host_df: pd.DataFrame | None, prod_df: pd.DataFrame | None, titl
 # ----------------
 errors = validate_inputs()
 
-# HOST BRANCH — No production settings should appear here
+# HOST — Production settings hidden
 if workshop_mode == "Host":
     if st.button("Generate Costs", type="primary"):
         if errors:
             st.error("Fix errors:\n- " + "\n- ".join(errors))
         else:
+            # Summary wording only; no HTML leakage
             st.subheader(f"Host Contract for {customer_name} Costs are per month.")
             breakdown, totals = calculate_host_costs()
 
-            # Explicit highlight if dev charge reduced to £0 due to support
             if customer_type == "Commercial" and dev_charge == 0.0:
                 st.success("Development charge has been **reduced to £0** due to the **support offered**.")
 
             display_table(breakdown, totals)
 
-            # Exports (CSV + PDF-ready HTML only)
             host_df = to_dataframe_host(breakdown, totals)
             st.download_button(
                 "Download CSV (Host)",
@@ -629,7 +655,7 @@ if workshop_mode == "Host":
                 mime="text/html",
             )
 
-# PRODUCTION BRANCH — Show production settings only when Production is selected
+# PRODUCTION — only appears when selected
 elif workshop_mode == "Production":
     st.subheader("Production Settings")
 
@@ -643,12 +669,9 @@ elif workshop_mode == "Production":
         st.markdown(
             """
             **By labour minutes (capacity @ 100%) — recommended**  
-            We look at how many **minutes of labour** each item could get in a full week *if everyone is busy the whole time*:  
-            **assigned prisoners × weekly hours × 60**.  
-            If an item has **more labour minutes available**, it gets a **bigger share** of the weekly overheads and supervisor time.  
-            **By assigned prisoners**  
-            We just count heads. If an item has **3 prisoners** and another has **1**, the first gets **3×** the share.  
-            Either way, when you **turn the Output % down**, you’ll make **fewer units**, so your **cost per unit goes up** (same weekly costs over fewer units).
+            Minutes available per item at full utilisation = **assigned prisoners × weekly hours × 60**.  
+            More minutes ⇒ bigger share of weekly overheads and supervisor time.  
+            **By assigned prisoners** just counts heads (simpler, less precise).
             """
         )
 
@@ -690,7 +713,7 @@ elif workshop_mode == "Production":
         results = calculate_production(items, output_percents, apportion_rule)
 
         for r in results:
-            st.markdown(f"### {r['Item']}")
+            st.markdown(f"### {r['Item'] or 'Item'}")
             st.write(f"- Output %: {r['Output %']}%")
             st.write(f"- Units/week: {r['Units/week']}")
             if r["Unit Cost (£)"] is None:
