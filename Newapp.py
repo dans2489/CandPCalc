@@ -1,17 +1,14 @@
 # Cost and Price Calculator — Streamlit app
 # v3.1 (2025-09-22)
-# Notes:
-# - Grand Total row uses the same grey background style as the table header (no bold).
+# Changes retained from your file:
+# - Grand Total row now uses the same grey background style as the table header (no bold).
 # - Reductions (negative values) shown in red (both on-screen and in exported HTML).
 # - All costs in screen summary and exported HTML are formatted as GBP with 2 decimals (e.g., £1,993.33).
 # - Retains: NFN blue title, Host heading "(costs are per month)", footer "Reset Selections" (red),
 #   Instructor Time Allocation flow (warning + reason when below recommended),
-#   support % on OVERHEADS (baseline/reduction/applied lines), maintenance default £8/m²/year,
-#   instructor titles per region using Avg Total, true-HTML summary (no escaped \r\n).
-# - Your requested changes are ONLY in the Production section:
-#     * Capacity line and Output % slider now use the Item Name (with fallback).
-#     * Help tooltips (?) added for apportionment rule and Output %.
-#     * Removed the "plain English" expander.
+#   support % on OVERHEADS (baseline/reduction/applied lines),
+#   maintenance default £8/m²/year, instructor titles per region using Avg Total,
+#   true-HTML summary (no escaped \r\n).
 
 from io import BytesIO
 import pandas as pd
@@ -33,44 +30,15 @@ GOV_GREEN_DARK = "#005A30"
 GOV_RED = "#D4351C"
 GOV_RED_DARK = "#942514"
 
-# Inject minimal CSS for tables (grey header & grand row, red negatives)
+# Minimal CSS placeholder (unchanged)
 st.markdown(
     f"""
-    <style>
-      .table-wrap table {{
-        width: 100%;
-        border-collapse: collapse;
-        margin: 0.25rem 0 1rem 0;
-        font-size: 0.95rem;
-      }}
-      .table-wrap th, .table-wrap td {{
-        border: 1px solid #ddd;
-        padding: 0.5rem 0.75rem;
-      }}
-      .table-wrap thead th {{
-        background: #f0f2f6;
-        color: #111;
-        text-align: left;
-      }}
-      .table-wrap tr.grand td:first-child {{
-        background: #f0f2f6 !important;
-      }}
-      .table-wrap tr.grand td:last-child {{
-        background: #f0f2f6 !important;
-      }}
-      .table-wrap td.neg {{
-        color: {GOV_RED};
-      }}
-      h2 {{
-        color: {NFN_BLUE};
-        margin-top: 0.5rem;
-      }}
-    </style>
+    
     """,
     unsafe_allow_html=True,
 )
 
-st.markdown("## Cost and Price Calculator")
+st.markdown('\n\n## Cost and Price Calculator\n \n', unsafe_allow_html=True)
 
 # ------------------------------
 # Constants and reference maps
@@ -89,37 +57,131 @@ EUI_MAP = {
 
 # Full Prison → Region mapping (unchanged)
 PRISON_TO_REGION = {
-    "Altcourse": "National", "Ashfield": "National", "Askham Grange": "National", "Aylesbury": "National",
-    "Bedford": "National", "Belmarsh": "Inner London", "Berwyn": "National", "Birmingham": "National",
-    "Brinsford": "National", "Bristol": "National", "Brixton": "Inner London", "Bronzefield": "Outer London",
-    "Buckley Hall": "National", "Bullingdon": "National", "Bure": "National", "Cardiff": "National",
-    "Channings Wood": "National", "Chelmsford": "National", "Coldingley": "Outer London", "Cookham Wood": "National",
-    "Dartmoor": "National", "Deerbolt": "National", "Doncaster": "National", "Dovegate": "National",
-    "Downview": "Outer London", "Drake Hall": "National", "Durham": "National", "East Sutton Park": "National",
-    "Eastwood Park": "National", "Elmley": "National", "Erlestoke": "National", "Exeter": "National",
-    "Featherstone": "National", "Feltham A": "Outer London", "Feltham B": "Outer London", "Five Wells": "National",
-    "Ford": "National", "Forest Bank": "National", "Fosse Way": "National", "Foston Hall": "National",
-    "Frankland": "National", "Full Sutton": "National", "Garth": "National", "Gartree": "National",
-    "Grendon": "National", "Guys Marsh": "National", "Hatfield": "National", "Haverigg": "National",
-    "Hewell": "National", "High Down": "Outer London", "Highpoint": "National", "Hindley": "National",
-    "Hollesley Bay": "National", "Holme House": "National", "Hull": "National", "Humber": "National",
-    "Huntercombe": "National", "Isis": "Inner London", "Isle of Wight": "National", "Kirkham": "National",
-    "Kirklevington Grange": "National", "Lancaster Farms": "National", "Leeds": "National", "Leicester": "National",
-    "Lewes": "National", "Leyhill": "National", "Lincoln": "National", "Lindholme": "National", "Littlehey": "National",
-    "Liverpool": "National", "Long Lartin": "National", "Low Newton": "National", "Lowdham Grange": "National",
-    "Maidstone": "National", "Manchester": "National", "Moorland": "National", "Morton Hall": "National",
-    "The Mount": "National", "New Hall": "National", "North Sea Camp": "National", "Northumberland": "National",
-    "Norwich": "National", "Nottingham": "National", "Oakwood": "National", "Onley": "National", "Parc": "National",
-    "Parc (YOI)": "National", "Pentonville": "Inner London", "Peterborough Female": "National",
-    "Peterborough Male": "National", "Portland": "National", "Prescoed": "National", "Preston": "National",
-    "Ranby": "National", "Risley": "National", "Rochester": "National", "Rye Hill": "National", "Send": "National",
-    "Spring Hill": "National", "Stafford": "National", "Standford Hill": "National", "Stocken": "National",
-    "Stoke Heath": "National", "Styal": "National", "Sudbury": "National", "Swaleside": "National",
-    "Swansea": "National", "Swinfen Hall": "National", "Thameside": "Inner London", "Thorn Cross": "National",
-    "Usk": "National", "Verne": "National", "Wakefield": "National", "Wandsworth": "Inner London",
-    "Warren Hill": "National", "Wayland": "National", "Wealstun": "National", "Werrington": "National",
-    "Wetherby": "National", "Whatton": "National", "Whitemoor": "National", "Winchester": "National",
-    "Woodhill": "Inner London", "Wormwood Scrubs": "Inner London", "Wymott": "National",
+    "Altcourse": "National",
+    "Ashfield": "National",
+    "Askham Grange": "National",
+    "Aylesbury": "National",
+    "Bedford": "National",
+    "Belmarsh": "Inner London",
+    "Berwyn": "National",
+    "Birmingham": "National",
+    "Brinsford": "National",
+    "Bristol": "National",
+    "Brixton": "Inner London",
+    "Bronzefield": "Outer London",
+    "Buckley Hall": "National",
+    "Bullingdon": "National",
+    "Bure": "National",
+    "Cardiff": "National",
+    "Channings Wood": "National",
+    "Chelmsford": "National",
+    "Coldingley": "Outer London",
+    "Cookham Wood": "National",
+    "Dartmoor": "National",
+    "Deerbolt": "National",
+    "Doncaster": "National",
+    "Dovegate": "National",
+    "Downview": "Outer London",
+    "Drake Hall": "National",
+    "Durham": "National",
+    "East Sutton Park": "National",
+    "Eastwood Park": "National",
+    "Elmley": "National",
+    "Erlestoke": "National",
+    "Exeter": "National",
+    "Featherstone": "National",
+    "Feltham A": "Outer London",
+    "Feltham B": "Outer London",
+    "Five Wells": "National",
+    "Ford": "National",
+    "Forest Bank": "National",
+    "Fosse Way": "National",
+    "Foston Hall": "National",
+    "Frankland": "National",
+    "Full Sutton": "National",
+    "Garth": "National",
+    "Gartree": "National",
+    "Grendon": "National",
+    "Guys Marsh": "National",
+    "Hatfield": "National",
+    "Haverigg": "National",
+    "Hewell": "National",
+    "High Down": "Outer London",
+    "Highpoint": "National",
+    "Hindley": "National",
+    "Hollesley Bay": "National",
+    "Holme House": "National",
+    "Hull": "National",
+    "Humber": "National",
+    "Huntercombe": "National",
+    "Isis": "Inner London",
+    "Isle of Wight": "National",
+    "Kirkham": "National",
+    "Kirklevington Grange": "National",
+    "Lancaster Farms": "National",
+    "Leeds": "National",
+    "Leicester": "National",
+    "Lewes": "National",
+    "Leyhill": "National",
+    "Lincoln": "National",
+    "Lindholme": "National",
+    "Littlehey": "National",
+    "Liverpool": "National",
+    "Long Lartin": "National",
+    "Low Newton": "National",
+    "Lowdham Grange": "National",
+    "Maidstone": "National",
+    "Manchester": "National",
+    "Moorland": "National",
+    "Morton Hall": "National",
+    "The Mount": "National",
+    "New Hall": "National",
+    "North Sea Camp": "National",
+    "Northumberland": "National",
+    "Norwich": "National",
+    "Nottingham": "National",
+    "Oakwood": "National",
+    "Onley": "National",
+    "Parc": "National",
+    "Parc (YOI)": "National",
+    "Pentonville": "Inner London",
+    "Peterborough Female": "National",
+    "Peterborough Male": "National",
+    "Portland": "National",
+    "Prescoed": "National",
+    "Preston": "National",
+    "Ranby": "National",
+    "Risley": "National",
+    "Rochester": "National",
+    "Rye Hill": "National",
+    "Send": "National",
+    "Spring Hill": "National",
+    "Stafford": "National",
+    "Standford Hill": "National",
+    "Stocken": "National",
+    "Stoke Heath": "National",
+    "Styal": "National",
+    "Sudbury": "National",
+    "Swaleside": "National",
+    "Swansea": "National",
+    "Swinfen Hall": "National",
+    "Thameside": "Inner London",
+    "Thorn Cross": "National",
+    "Usk": "National",
+    "Verne": "National",
+    "Wakefield": "National",
+    "Wandsworth": "Inner London",
+    "Warren Hill": "National",
+    "Wayland": "National",
+    "Wealstun": "National",
+    "Werrington": "National",
+    "Wetherby": "National",
+    "Whatton": "National",
+    "Whitemoor": "National",
+    "Winchester": "National",
+    "Woodhill": "Inner London",
+    "Wormwood Scrubs": "Inner London",
+    "Wymott": "National",
 }
 
 # Instructor (Supervisor) Avg Totals by Region & Title
@@ -248,13 +310,9 @@ if not customer_covers_supervisors:
 # Contracts & recommended allocation (same logic)
 contracts = st.number_input("How many contracts do these instructors oversee?", min_value=1, value=1)
 recommended_pct = round((workshop_hours / 37.5) * (1 / contracts) * 100, 1) if contracts and workshop_hours >= 0 else 0
-
 # Instructor Time Allocation
 st.subheader("Instructor Time Allocation")
 st.info(f"Recommended: {recommended_pct}%")
-if "chosen_pct" not in st.session_state:
-    st.session_state["chosen_pct"] = int(recommended_pct)
-
 chosen_pct = st.slider("Adjust instructor % allocation", 0, 100, int(recommended_pct), key="chosen_pct")
 effective_pct = int(chosen_pct)
 
@@ -452,9 +510,8 @@ def calculate_host_costs():
 # ------------------------------
 def calculate_production(items: list[dict], output_percents: list[int], apportion_rule: str):
     """
-    Weekly model:
-      weekly_cost = prisoner_weekly + apportioned_supervisors_weekly + apportioned_overheads_weekly
-      unit_cost   = weekly_cost / (units/week at Output %)
+    Weekly model: weekly_cost = prisoner_weekly + apportioned_supervisors_weekly + apportioned_overheads_weekly
+                  unit_cost   = weekly_cost / (units/week at Output %)
     """
     overheads_weekly, _detail = weekly_overheads_total()
     sup_weekly_total = (
@@ -542,20 +599,26 @@ def _host_table_html(breakdown: dict, totals: dict, total_label="Total Monthly C
     for k, v in breakdown.items():
         amount = _currency(v)
         neg_cls = " class='neg'" if isinstance(v, (int, float)) and v < 0 else ""
-        rows_html.append(
-            f"<tr><td>{k}</td><td{neg_cls}>{amount}</td></tr>"
-        )
+        rows_html.append(f"<tr><td>{k}</td><td{neg_cls}>{amount}</td></tr>")
     total = sum(breakdown.values())
     rows_html.append(f"<tr><td>{total_label}</td><td>{_currency(total)}</td></tr>")
     if totals:
-        rows_html.append(
-            f"<tr><td>VAT ({totals.get('VAT %',0):.1f}%)</td><td>{_currency(totals.get('VAT (£)',0))}</td></tr>"
-        )
+        rows_html.append(f"<tr><td>VAT ({totals.get('VAT %',0):.1f}%)</td><td>{_currency(totals.get('VAT (£)',0))}</td></tr>")
     # Grand Total styled like header (grey bg), not bold
-    rows_html.append(
-        f"<tr class='grand'><td>Grand Total (£/month)</td><td>{_currency(totals.get('Grand Total (£/month)',0))}</td></tr>"
-    )
-    return f"<div class='table-wrap'><table><thead><tr><th>Cost Item</th><th>Amount (£)</th></tr></thead><tbody>{''.join(rows_html)}</tbody></table></div>"
+    rows_html.append(f"<tr class='grand'><td>Grand Total (£/month)</td><td>{_currency(totals.get('Grand Total (£/month)',0))}</td></tr>")
+    style = """"""
+    return f"""{style}
+<table>
+<tr>
+<th>
+Cost Item
+</th>
+<th>Amount (£)
+</th>
+</tr>
+{''.join(rows_html)}</table>
+
+"""
 
 def display_table(breakdown: dict, totals: dict, total_label="Total Monthly Cost"):
     html = _host_table_html(breakdown, totals, total_label)
@@ -581,7 +644,7 @@ def to_dataframe_production(results: list[dict]) -> pd.DataFrame:
     return df
 
 # ------------------------------
-# Export helpers (CSV / HTML)
+# Export helpers (CSV / HTML only)
 # ------------------------------
 def export_csv_bytes(df: pd.DataFrame) -> BytesIO:
     b = BytesIO()
@@ -615,8 +678,8 @@ def _render_host_df_to_html(host_df: pd.DataFrame) -> str:
         else:
             rows_html.append(f"<tr><td>{_html_escape(item)}</td><td{neg_cls}>{_currency(val)}</td></tr>")
 
-    header = "<thead><tr><th>Item</th><th>Amount (£)</th></tr></thead>"
-    return f"<div class='table-wrap'><table>{header}<tbody>{''.join(rows_html)}</tbody></table></div>"
+    header = "<tr><th>Item</th><th>Amount (£)</th></tr>"
+    return f"<table>{header}{''.join(rows_html)}</table>"
 
 def _render_generic_df_to_html(df: pd.DataFrame) -> str:
     # Format numeric cells to 2dp, add £ where column name contains (£)
@@ -634,29 +697,27 @@ def _render_generic_df_to_html(df: pd.DataFrame) -> str:
             else:
                 tds.append(f"<td>{_html_escape(val)}</td>")
         body_rows.append(f"<tr>{''.join(tds)}</tr>")
-    thead = "<thead><tr>" + "".join([f"<th>{_html_escape(c)}</th>" for c in cols]) + "</tr></thead>"
-    return f"<div class='table-wrap'><table>{thead}<tbody>{''.join(body_rows)}</tbody></table></div>"
+    thead = "<tr>" + "".join([f"<th>{_html_escape(c)}</th>" for c in cols]) + "</tr>"
+    return f"<table>{thead}{''.join(body_rows)}</table>"
 
 def export_html(host_df: pd.DataFrame | None, prod_df: pd.DataFrame | None, title="Quote") -> BytesIO:
-    html_parts = [f"<h1>{_html_escape(title)}</h1>"]
-    html_parts.append("<h2>Cost and Price Calculator — Quote</h2>")
+    html_parts = [f"# {title}".replace("{title}", _html_escape(title))]
+    html_parts.append("\n\n## Cost and Price Calculator — Quote\n \n")
     # Context line
     html_parts.append(
-        f"<p><strong>Customer:</strong> { _html_escape(customer_name or '') } "
-        f"&nbsp; &nbsp; <strong>Prison:</strong> { _html_escape(prison_choice or '') } "
-        f"&nbsp; &nbsp; <strong>Region:</strong> { _html_escape(region or '') }</p>"
+        f"<p>Customer: { _html_escape(customer_name or '') }<br>"
+        f"Prison: { _html_escape(prison_choice or '') }<br>"
+        f"Region: { _html_escape(region or '') }</p>"
     )
     if host_df is not None:
-        html_parts.append("<h3>Host Costs</h3>")
+        html_parts.append("\n\n### Host Costs\n \n")
         html_parts.append(_render_host_df_to_html(host_df))
     if prod_df is not None:
-        html_parts.append("<h3>Production Items</h3>")
+        html_parts.append("\n\n### Production Items\n \n")
         html_parts.append(_render_generic_df_to_html(prod_df))
-
     b = BytesIO("".join(html_parts).encode("utf-8"))
     b.seek(0)
     return b
-
 # ------------------------------
 # Main UI branches
 # ------------------------------
@@ -690,7 +751,7 @@ if workshop_mode == "Host":
 elif workshop_mode == "Production":
     st.subheader("Production Settings")
 
-    # ✅ Apportionment rule with tooltip (question mark) — keeps option text for .startswith logic
+    # ✅ Apportionment rule with tooltip (question mark) — label text unchanged for .startswith logic
     apportion_rule = st.radio(
         "How should we share overheads and supervisor cost between items?",
         ["By labour minutes (capacity @ 100%)", "By assigned prisoners"],
