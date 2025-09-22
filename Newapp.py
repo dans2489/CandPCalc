@@ -1,23 +1,29 @@
 import streamlit as st
-from PIL import Image
-import requests
-from io import BytesIO
 
 # ------------------------------
 # PAGE CONFIG
 # ------------------------------
 st.set_page_config(
     page_title="Prison Workshop Costing Tool",
-    layout="centered",
+    layout="wide",
 )
 
 # ------------------------------
-# LOGO TOP LEFT
+# COMMERCIAL UTILITY TARIFFS (2025 AVERAGES, UK GOV DATA)
 # ------------------------------
-logo_url = "https://futures-network.org.uk/wp-content/uploads/2022/12/futures-network-logo.png"
-response = requests.get(logo_url)
-logo = Image.open(BytesIO(response.content))
-st.image(logo, width=150)
+ELECTRICITY_RATE = 0.25   # £/kWh
+GAS_RATE = 0.07           # £/kWh
+WATER_RATE = 2.00         # £/m³ (approx commercial average)
+
+# ------------------------------
+# WORKSHOP TYPE ENERGY INTENSITY (kWh/m²/year)
+# ------------------------------
+workshop_energy = {
+    "Workshop (Empty/basic)": {"electric": 40, "gas": 10, "water": 0.55},
+    "Workshop (Low energy)": {"electric": 70, "gas": 20, "water": 0.55},
+    "Workshop (Medium energy)": {"electric": 115, "gas": 40, "water": 0.55},
+    "Workshop (High energy)": {"electric": 170, "gas": 70, "water": 0.55},
+}
 
 # ------------------------------
 # CUSTOM CSS FOR GOV STYLE
@@ -39,22 +45,13 @@ table tr.total-row { font-weight: bold; background-color: #e6f0fa; }
 """, unsafe_allow_html=True)
 
 # ------------------------------
-# APP TITLE
+# LOGO + TITLE
 # ------------------------------
-st.title("Cost and Price Calculator")
-
-# ------------------------------
-# WORKSHOP TYPE UTILITIES (Commercial Rates)
-# ------------------------------
-workshop_utilities = {
-    "Woodwork": {"electric": 75, "gas": 40, "water": 0.55},
-    "Metalwork": {"electric": 80, "gas": 45, "water": 0.55},
-    "Textiles": {"electric": 120, "gas": 35, "water": 0.55},
-    "Warehousing": {"electric": 33, "gas": 20, "water": 0.55},
-    "Packing": {"electric": 50, "gas": 25, "water": 0.55},
-    "Empty space (no machinery)": {"electric": 10, "gas": 5, "water": 0.55},
-}
-unit_costs = {"electric": 0.257, "gas": 0.063, "water": 2.47}  # £ per kWh or £ per m³
+col1, col2 = st.columns([1, 4])
+with col1:
+    st.image("logo.png", width=120)  # ensure logo.png is in same folder
+with col2:
+    st.title("Prison Workshop Costing Tool")
 
 # ------------------------------
 # INPUTS
@@ -66,7 +63,7 @@ customer_name = st.text_input("Customer?")
 workshop_mode = st.radio("Contract type?", ["Select", "Host", "Production"], index=0)
 workshop_size = st.selectbox("Workshop size?", ["Select", "Small", "Medium", "Large", "Enter dimensions"], index=0)
 
-# Area calculation
+# Area
 area = 0
 if workshop_size == "Enter dimensions":
     width = st.number_input("Width (m)", min_value=0.0, format="%.2f", value=0.0)
@@ -77,29 +74,26 @@ else:
     area_map = {"Small": 100, "Medium": 250, "Large": 500}
     area = area_map.get(workshop_size, 0)
 
-workshop_type = st.selectbox("Workshop type?", ["Select"] + list(workshop_utilities.keys()), index=0)
+workshop_type = st.selectbox("Workshop type?", ["Select"] + list(workshop_energy.keys()), index=0)
 workshop_hours = st.number_input("How many hours per week is it open?", min_value=0.0, format="%.2f", value=0.0)
+
+# Prisoner employment
 num_prisoners = st.number_input("How many prisoners employed?", min_value=0, value=0)
 prisoner_salary = st.number_input("Prisoner salary per week (£)", min_value=0.0, format="%.2f", value=0.0)
+
+# Supervisors
 num_supervisors = st.number_input("How many supervisors?", min_value=0, value=0)
+customer_covers_supervisors = st.checkbox("Customer provides supervisor(s) (no salary cost to prison)?")
 
 supervisor_salaries = []
-for i in range(num_supervisors):
-    sup_salary = st.number_input(f"Supervisor {i+1} annual salary (£)", min_value=0.0, format="%.2f", value=0.0)
-    supervisor_salaries.append(sup_salary)
+if not customer_covers_supervisors:
+    for i in range(num_supervisors):
+        sup_salary = st.number_input(f"Supervisor {i+1} annual salary (£)", min_value=0.0, format="%.2f", value=0.0)
+        supervisor_salaries.append(sup_salary)
 
 contracts = st.number_input("How many contracts do these supervisors oversee?", min_value=0, value=0)
 
-# ------------------------------
-# CUSTOMER PAYS SUPERVISOR?
-# ------------------------------
-customer_pays_supervisor = False
-if customer_type == "Commercial" and num_supervisors > 0:
-    customer_pays_supervisor = st.checkbox("Customer pays for supervisor(s)?", value=False)
-
-# ------------------------------
-# EMPLOYMENT SUPPORT (Commercial)
-# ------------------------------
+# Employment support (for commercial)
 support = None
 dev_charge = 0.0
 if customer_type == "Commercial":
@@ -116,132 +110,153 @@ if customer_type == "Commercial":
         else:
             dev_charge = 0.0
 
-# ------------------------------
-# SUPERVISOR % CALCULATION
-# ------------------------------
+# Supervisor % allocation
 st.subheader("Supervisor Time Allocation")
-st.markdown("**Recommended allocation based on hours and number of contracts:**")
 recommended_pct = 0
 if workshop_hours > 0 and contracts > 0:
     recommended_pct = round((workshop_hours / 37.5) * (1 / contracts) * 100, 1)
     st.info(f"{recommended_pct}% recommended supervisor allocation")
 chosen_pct = st.slider("Adjust supervisor % allocation", 0, 100, int(recommended_pct), step=1)
+
 reason_for_low_pct = ""
 if chosen_pct < recommended_pct:
     reason_for_low_pct = st.text_area("Please explain why you are choosing a lower percentage:")
 
 # ------------------------------
-# VALIDATION FUNCTION
+# VALIDATION
 # ------------------------------
 def validate_inputs():
     errors = []
-    if region == "Select": errors.append("Please select a region.")
-    if not prison_name.strip(): errors.append("Please enter the prison name.")
-    if customer_type == "Select": errors.append("Please select a customer type.")
-    if customer_type == "Commercial" and (support is None or support == "Select"): errors.append("Please select the customer employment support option.")
-    if not customer_name.strip(): errors.append("Please enter the customer name.")
-    if workshop_mode == "Select": errors.append("Please select a contract type.")
-    if workshop_size == "Select": errors.append("Please select a workshop size.")
-    if workshop_type == "Select": errors.append("Please select a workshop type.")
-    if workshop_hours <= 0: errors.append("Please enter the number of workshop hours.")
-    if num_prisoners <= 0: errors.append("Please enter the number of prisoners employed.")
-    if prisoner_salary <= 0: errors.append("Please enter the prisoner salary per week.")
-    if num_supervisors <= 0: errors.append("Please enter the number of supervisors.")
-    if not supervisor_salaries or any(s <= 0 for s in supervisor_salaries): errors.append("Please enter all supervisor salaries.")
-    if contracts <= 0: errors.append("Please enter the number of contracts overseen.")
-    if chosen_pct < recommended_pct and not reason_for_low_pct.strip(): errors.append("Please provide a reason for choosing a lower supervisor % allocation.")
+    if region == "Select":
+        errors.append("Please select a region.")
+    if not prison_name.strip():
+        errors.append("Please enter the prison name.")
+    if customer_type == "Select":
+        errors.append("Please select a customer type.")
+    if customer_type == "Commercial" and (support is None or support == "Select"):
+        errors.append("Please select the customer employment support option.")
+    if not customer_name.strip():
+        errors.append("Please enter the customer name.")
+    if workshop_mode == "Select":
+        errors.append("Please select a contract type.")
+    if workshop_size == "Select":
+        errors.append("Please select a workshop size.")
+    if workshop_type == "Select":
+        errors.append("Please select a workshop type.")
+    if workshop_hours <= 0:
+        errors.append("Please enter the number of workshop hours.")
+    if num_prisoners <= 0:
+        errors.append("Please enter the number of prisoners employed.")
+    if prisoner_salary <= 0:
+        errors.append("Please enter the prisoner salary per week.")
+    if not customer_covers_supervisors:
+        if num_supervisors <= 0:
+            errors.append("Please enter the number of supervisors.")
+        if not supervisor_salaries or any(s <= 0 for s in supervisor_salaries):
+            errors.append("Please enter all supervisor salaries.")
+    if contracts <= 0:
+        errors.append("Please enter the number of contracts overseen.")
+    if chosen_pct < recommended_pct and not reason_for_low_pct.strip():
+        errors.append("Please provide a reason for choosing a lower supervisor % allocation.")
     return errors
 
 # ------------------------------
-# HOST COST CALCULATION FUNCTION
+# COST CALCULATIONS
 # ------------------------------
 def calculate_host_costs():
     breakdown = {}
-    weeks_to_month = 52/12
+    # Prisoner wages (monthly)
+    breakdown["Prisoner wages"] = num_prisoners * prisoner_salary * (52/12)
 
-    # Prisoner wages
-    breakdown["Prisoner wages"] = num_prisoners * prisoner_salary * weeks_to_month
-
-    # Supervisor cost only if customer does not pay
-    supervisor_cost = 0 if customer_pays_supervisor else sum((s / 12) * (chosen_pct / 100) for s in supervisor_salaries)
-    breakdown["Supervisors"] = supervisor_cost
+    # Supervisors
+    if not customer_covers_supervisors:
+        supervisor_cost = sum((s / 12) * (chosen_pct / 100) for s in supervisor_salaries)
+        breakdown["Supervisors"] = supervisor_cost
+    else:
+        supervisor_cost = 0
 
     # Utilities
-    if workshop_type in workshop_utilities:
-        util = workshop_utilities[workshop_type]
-        breakdown["Electricity (£)"] = area * (util["electric"] / 12) * unit_costs["electric"]
-        breakdown["Gas (£)"] = area * (util["gas"] / 12) * unit_costs["gas"]
-        breakdown["Water (£)"] = area * (util["water"] / 12) * unit_costs["water"]
+    if workshop_type in workshop_energy:
+        factors = workshop_energy[workshop_type]
+        electric_cost = area * (factors["electric"]/12) * ELECTRICITY_RATE
+        gas_cost = area * (factors["gas"]/12) * GAS_RATE
+        water_cost = area * (factors["water"]/12) * WATER_RATE
+        breakdown["Electricity"] = electric_cost
+        breakdown["Gas"] = gas_cost
+        breakdown["Water"] = water_cost
 
-    breakdown["Administration (£)"] = 150
-    breakdown["Maintenance / Depreciation (£)"] = area * 0.50
+    breakdown["Administration"] = 150
+    breakdown["Depreciation/Maintenance"] = area * 0.5
 
-    # Regional uplift
-    region_mult_map = {"National": 1.00, "Outer London": 1.10, "Inner London": 1.28}
-    region_mult = region_mult_map.get(region, 1.0)
-    breakdown["Regional overhead uplift"] = sum(breakdown.values()) * (region_mult - 1)
+    region_mult = {"National": 1.0, "Outer London": 1.1, "Inner London": 1.2}.get(region, 1.0)
+    breakdown["Regional uplift"] = (sum(breakdown.values())) * (region_mult - 1)
 
-    # Development charge
     breakdown["Development charge"] = supervisor_cost * dev_charge if customer_type == "Commercial" else 0
 
     return breakdown, sum(breakdown.values())
 
-# ------------------------------
-# PRODUCTION ITEMS INPUT (DYNAMIC)
-# ------------------------------
-production_items = []
-if workshop_mode == "Production":
-    st.subheader("Production Items")
-    num_items = st.number_input("How many different items will be produced?", min_value=0, value=0, step=1)
-    for i in range(num_items):
-        st.markdown(f"**Item {i+1}**")
-        name = st.text_input(f"Item {i+1} Name", key=f"name_{i}")
-        workers_needed = st.number_input(f"Number of prisoners needed for {name}", min_value=0, value=1, key=f"workers_{i}")
-        mins_per_unit = st.number_input(f"Minutes to produce one unit of {name}", min_value=1, value=60, key=f"mins_{i}")
-        prisoners_on_item = st.number_input(f"Number of prisoners working on {name}", min_value=1, value=workers_needed, key=f"prisoners_{i}")
-        production_items.append((name, workers_needed, mins_per_unit, prisoners_on_item))
+def calculate_production_items(items):
+    results = []
+    sup_monthly = 0
+    if not customer_covers_supervisors:
+        sup_monthly = sum([(s / 12) * (chosen_pct / 100) for s in supervisor_salaries])
+    prisoner_monthly = num_prisoners * prisoner_salary * (52/12)
+
+    for name, mins_per_unit, prisoners_on_item in items:
+        available_minutes = prisoners_on_item * workshop_hours * 60 * (52/12)
+        max_units = available_minutes / mins_per_unit if mins_per_unit > 0 else 0
+
+        total_cost = sup_monthly + prisoner_monthly
+        unit_cost = round(total_cost / max(max_units, 1), 2) if max_units > 0 else 0
+
+        weekly_total_cost = total_cost * (12/52)
+        min_items_per_week = round(weekly_total_cost / unit_cost, 1) if unit_cost > 0 else 0
+
+        results.append({
+            "Item": name,
+            "Unit Cost (£)": unit_cost,
+            "Min Items/Week": min_items_per_week
+        })
+    return results
 
 # ------------------------------
-# CALCULATE COSTS
+# DISPLAY TABLE
 # ------------------------------
-if st.button("Calculate Costs"):
+def display_gov_table(breakdown, total_label="Total Monthly Cost"):
+    html_table = "<table>"
+    html_table += "<thead><tr><th>Cost Item</th><th>Amount (£)</th></tr></thead><tbody>"
+    for k, v in breakdown.items():
+        html_table += f"<tr><td>{k}</td><td>£{v:,.2f}</td></tr>"
+    total_value = sum(breakdown.values())
+    html_table += f"<tr class='total-row'><td>{total_label}</td><td>£{total_value:,.2f}</td></tr>"
+    html_table += "</tbody></table>"
+    st.markdown(html_table, unsafe_allow_html=True)
+
+# ------------------------------
+# RUN CALCULATIONS
+# ------------------------------
+if st.button("Generate Costing"):
     errors = validate_inputs()
     if errors:
-        st.error("Please fix the following errors:")
-        for err in errors: st.write(f"- {err}")
+        st.error("Please fix the following before continuing:\n- " + "\n- ".join(errors))
     else:
-        weeks_to_month = 52/12
-        month_to_weeks = 12/52
-
-        # HOST
         if workshop_mode == "Host":
-            host_breakdown, host_total = calculate_host_costs()
-            st.subheader("Host Workshop Costs")
-            for k,v in host_breakdown.items(): st.write(f"{k}: £{v:,.2f}")
-            st.write(f"**Total Monthly Cost: £{host_total:,.2f}**")
+            st.subheader("Host Contract Costing")
+            breakdown, total = calculate_host_costs()
+            display_gov_table(breakdown)
 
-        # PRODUCTION
-        elif workshop_mode == "Production" and production_items:
-            st.subheader("Production Item Costs")
-            total_supervisor_cost = 0 if customer_pays_supervisor else sum([(s / 12) * (chosen_pct / 100) for s in supervisor_salaries])
-
-            for name, workers_needed, mins_per_unit, prisoners_on_item in production_items:
-                # Available minutes
-                available_minutes_per_month = prisoners_on_item * workshop_hours * 60 * weeks_to_month
-
-                # Labour cost for this item
-                prisoner_cost = prisoners_on_item * prisoner_salary * weeks_to_month
-                supervisor_cost_item = total_supervisor_cost * (prisoners_on_item / num_prisoners if num_prisoners > 0 else 0)
-                total_cost_item = prisoner_cost + supervisor_cost_item
-
-                # Unit cost
-                producible_units = max(available_minutes_per_month / mins_per_unit, 1)
-                unit_cost = total_cost_item / producible_units
-
-                # Minimum items/week to cover costs
-                weekly_total_cost = total_cost_item * month_to_weeks
-                min_items_per_week = round(weekly_total_cost / unit_cost, 1) if unit_cost > 0 else 0
-
-                st.write(f"**Item: {name}**")
-                st.write(f"- Unit Cost (£): £{unit_cost:,.2f}")
-                st.write(f"- Minimum items needed per week to cover costs: {min_items_per_week:,.1f}")
+        elif workshop_mode == "Production":
+            st.subheader("Production Contract Costing")
+            num_items = st.number_input("How many different items are produced?", min_value=1, value=1)
+            items = []
+            for i in range(num_items):
+                name = st.text_input(f"Item {i+1} name")
+                mins_per_unit = st.number_input(f"Minutes to make one {name}", min_value=1.0, format="%.1f")
+                prisoners_on_item = st.number_input(f"How many prisoners work on {name}?", min_value=1)
+                items.append((name, mins_per_unit, prisoners_on_item))
+            if st.button("Calculate Production Costs"):
+                results = calculate_production_items(items)
+                for r in results:
+                    st.write(f"**{r['Item']}**")
+                    st.write(f"- Unit Cost (£): £{r['Unit Cost (£)']:.2f}")
+                    st.write(f"- Minimum items needed per week to cover costs: {r['Min Items/Week']}")
