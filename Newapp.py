@@ -1,13 +1,13 @@
 # Cost and Price Calculator — Streamlit app
-# v4.0 (2025-09-23)
+# v4.1 (2025-09-23)
 # ---------------------------------------------------------------------
 # Fixes per Dan:
-# - Ad-hoc table now renders via st.markdown (no iframe), so it inherits the same CSS/font as the app.
-# - Host & Production tables also render via st.markdown for consistency.
-# - Introduced a GOV.UK-like table class and a global font stack to keep fonts identical across sections.
-# - Buttons remain GOV.UK green. No other colours/heading styles changed. Title not overridden.
-# - Ad-hoc still includes Unit Price ex VAT and (if applied) Unit Price inc VAT, and prints the plain sentence.
-# - Contractual Production and Host logic unchanged (Labour minutes only; minutes budget/cap).
+# 1) Rename ALL user-facing mentions of "Supervisor" to "Instructor" (including possessives),
+#    e.g., inputs, captions, breakdown rows, and table labels.
+# 2) Improve exported HTML (PDF-ready) styling: embed a GOV.UK-like stylesheet so the
+#    quote looks consistent (fonts, headings, tables, spacing, A4 print margins).
+# 3) Keep: buttons GOV.UK green; no title/other colours changed. Ad-hoc sentence plain.
+# 4) Contractual Production & Host logic unchanged (Labour minutes only; minutes budget/cap).
 
 from io import BytesIO
 import math
@@ -139,7 +139,7 @@ PRISON_TO_REGION = {
     "Winchester": "National", "Woodhill": "Inner London", "Wormwood Scrubs": "Inner London", "Wymott": "National",
 }
 
-# Instructor (Supervisor) Avg Totals by Region & Title
+# Instructor Avg Totals by Region & Title (unchanged data source; display uses "Instructor")
 SUPERVISOR_PAY = {
     "Inner London": [
         {"title": "Production Instructor: Band 3", "avg_total": 49203},
@@ -243,8 +243,8 @@ num_prisoners = st.number_input("How many prisoners employed?", min_value=0, ste
 prisoner_salary = st.number_input("Prisoner salary per week (£)", min_value=0.0, format="%.2f")
 
 # Instructors (formerly supervisors)
-num_supervisors = st.number_input("How many supervisors?", min_value=0, step=1)
-customer_covers_supervisors = st.checkbox("Customer provides supervisor(s)?")
+num_supervisors = st.number_input("How many instructors?", min_value=0, step=1)
+customer_covers_supervisors = st.checkbox("Customer provides instructor(s)?")
 supervisor_salaries = []
 if not customer_covers_supervisors:
     titles_for_region = SUPERVISOR_PAY.get(region, [])
@@ -306,7 +306,7 @@ with colp2:
     vat_rate = st.number_input("VAT rate %", min_value=0.0, max_value=100.0, value=20.0, step=0.5, format="%.1f")
 
 st.caption(
-    "Unit pricing: Unit Cost includes labour + apportioned supervisors + apportioned overheads. "
+    "Unit pricing: Unit Cost includes labour + apportioned instructors + apportioned overheads. "
     "No margin control: Unit Price ex VAT = Unit Cost. "
     "If VAT is ticked and customer is Commercial, Unit Price inc VAT = ex VAT × (1 + VAT%)."
 )
@@ -329,7 +329,7 @@ def validate_inputs():
     if num_prisoners < 0: errors.append("Prisoners employed cannot be negative")
     if prisoner_salary < 0: errors.append("Prisoner salary per week cannot be negative")
     if not customer_covers_supervisors:
-        if num_supervisors <= 0: errors.append("Enter number of supervisors (>0) or tick 'Customer provides supervisor(s)'")
+        if num_supervisors <= 0: errors.append("Enter number of instructors (>0) or tick 'Customer provides instructor(s)'")
         if region == "Select": errors.append("Select a prison/region to populate instructor titles")
         if len(supervisor_salaries) != int(num_supervisors): errors.append("Choose a title for each instructor")
         if any(s <= 0 for s in supervisor_salaries): errors.append("Instructor Avg Total must be > 0")
@@ -413,24 +413,62 @@ def export_csv_bytes(df: pd.DataFrame) -> BytesIO:
     b.seek(0)
     return b
 
+# --------------------------
+# Improved HTML export (styled)
+# --------------------------
 
 def export_html(host_df: pd.DataFrame | None, prod_df: pd.DataFrame | None, title="Quote") -> BytesIO:
-    html_parts = [
+    css = f"""
+    <style>
+      @page {{ size: A4; margin: 16mm; }}
+      body {{
+        font-family: 'GDS Transport', 'Helvetica Neue', Arial, Helvetica, sans-serif;
+        color: #0b0c0c; font-size: 16px; line-height: 1.4; margin: 0;
+      }}
+      h1 {{ font-size: 28px; margin: 0 0 8px; }}
+      h2 {{ font-size: 22px; margin: 18px 0 8px; }}
+      h3 {{ font-size: 18px; margin: 14px 0 6px; }}
+      .meta {{
+        border: 1px solid #b1b4b6; background:#f3f2f1; padding: 10px 12px; margin: 8px 0 16px; border-radius: 2px;
+      }}
+      .meta strong {{ display:inline-block; min-width: 100px; }}
+      .section {{ margin: 16px 0 24px; }}
+      .govuk-table {{ width: 100%; border-collapse: collapse; margin: 8px 0 0; font-size: 15px; }}
+      .govuk-table th, .govuk-table td {{ border-bottom: 1px solid #b1b4b6; padding: 6px 8px; text-align: left; vertical-align: top; }}
+      .govuk-table th {{ background: #f3f2f1; font-weight: 600; }}
+      .govuk-table tr.grand td {{ background:#f3f2f1!important; font-weight: 400!important; }}
+      .govuk-table td.neg {{ color: {GOV_RED}; }}
+      .footer-note {{ color:#505a5f; font-size: 12px; margin-top: 24px; }}
+    </style>
+    """
+    meta = (
+        f"<div class='meta'>"
+        f"<p><strong>Customer:</strong> { _html_escape(customer_name or '') }&nbsp;&nbsp;"
+        f"<strong>Prison:</strong> { _html_escape(prison_choice or '') }&nbsp;&nbsp;"
+        f"<strong>Region:</strong> { _html_escape(region or '') }</p>"
+        f"</div>"
+    )
+    parts = [
+        "<!doctype html><html><head><meta charset='utf-8'>",
+        css,
+        f"<title>{_html_escape(title)}</title></head><body>",
         f"<h1>{_html_escape(title)}</h1>",
         "<h2>Cost and Price Calculator — Quote</h2>",
-        (
-            f"<p><strong>Customer:</strong> {_html_escape(customer_name or '')} &nbsp; "
-            f"<strong>Prison:</strong> {_html_escape(prison_choice or '')} &nbsp; "
-            f"<strong>Region:</strong> {_html_escape(region or '')}</p>"
-        )
+        meta,
     ]
     if host_df is not None:
-        html_parts.append("<h3>Host Costs</h3>")
-        html_parts.append(_render_host_df_to_html(host_df))
+        parts.append("<div class='section'>")
+        parts.append("<h3>Host Costs</h3>")
+        parts.append(_render_host_df_to_html(host_df))
+        parts.append("</div>")
     if prod_df is not None:
-        html_parts.append("<h3>Production Items</h3>")
-        html_parts.append(_render_generic_df_to_html(prod_df))
-    b = BytesIO("".join(html_parts).encode("utf-8")); b.seek(0); return b
+        parts.append("<div class='section'>")
+        parts.append("<h3>Production Items</h3>")
+        parts.append(_render_generic_df_to_html(prod_df))
+        parts.append("</div>")
+    parts.append("<div class='footer-note'>Prices are indicative and may be subject to change based on final scope and site conditions.</div>")
+    parts.append("</body></html>")
+    b = BytesIO("".join(parts).encode("utf-8")); b.seek(0); return b
 
 # --------------------------
 # Host costs (monthly)
@@ -473,57 +511,6 @@ def weekly_overheads_total():
         "Depreciation/Maintenance (estimated)": maint_m,
     }
 
-
-def calculate_host_costs():
-    breakdown = {}
-    breakdown["Prisoner wages"] = num_prisoners * prisoner_salary * (52 / 12)
-    supervisor_cost = 0.0
-    if not customer_covers_supervisors:
-        supervisor_cost = sum((s / 12) * (effective_pct / 100) for s in supervisor_salaries)
-    breakdown["Supervisors"] = supervisor_cost
-    elec_m, gas_m = monthly_energy_costs()
-    water_m = monthly_water_costs()
-    breakdown["Electricity (estimated)"] = elec_m
-    breakdown["Gas (estimated)"] = gas_m
-    breakdown["Water (estimated)"] = water_m
-    breakdown["Administration"] = admin_monthly
-    if maint_method.startswith("£/m² per year"):
-        rate = st.session_state.get("maint_rate_per_m2_y", 8.0)
-        breakdown["Depreciation/Maintenance (estimated)"] = (rate * area_m2) / 12.0
-    else:
-        breakdown["Depreciation/Maintenance (estimated)"] = maint_monthly
-
-    overheads_subtotal = (
-        breakdown.get("Electricity (estimated)", 0.0)
-        + breakdown.get("Gas (estimated)", 0.0)
-        + breakdown.get("Water (estimated)", 0.0)
-        + breakdown.get("Administration", 0.0)
-        + breakdown.get("Depreciation/Maintenance (estimated)", 0.0)
-    )
-    dev_baseline_rate = 0.20
-    dev_baseline_amount = overheads_subtotal * dev_baseline_rate
-    if customer_type == "Commercial":
-        dev_applied_rate = dev_rate
-        dev_applied_amount = overheads_subtotal * dev_applied_rate
-        reduction_amount = max(dev_baseline_amount - dev_applied_amount, 0.0)
-        breakdown["Development charge baseline (20% of overheads)"] = dev_baseline_amount
-        if reduction_amount > 0:
-            breakdown["Support reduction (employment support)"] = -reduction_amount
-        breakdown["Development charge (applied)"] = dev_applied_amount
-    else:
-        breakdown["Development charge (applied)"] = 0.0
-
-    subtotal = sum(breakdown.values())
-    vat_amount = (subtotal * (vat_rate / 100.0)) if (customer_type == "Commercial" and apply_vat) else 0.0
-    grand_total = subtotal + vat_amount
-    totals = {
-        "Subtotal": subtotal,
-        "VAT %": vat_rate if (customer_type == "Commercial" and apply_vat) else 0.0,
-        "VAT (£)": vat_amount if (customer_type == "Commercial" and apply_vat) else 0.0,
-        "Grand Total (£/month)": grand_total,
-    }
-    return breakdown, totals
-
 # --------------------------
 # Production helpers & model (Contractual)
 # --------------------------
@@ -557,9 +544,9 @@ def calculate_production_contractual(items, output_percents):
         share = ((prisoners_assigned * workshop_hours * 60.0) / denom) if denom > 0 else 0.0
 
         prisoner_weekly_item = prisoners_assigned * prisoner_salary
-        sup_weekly_item = sup_weekly_total * share
+        inst_weekly_item = sup_weekly_total * share
         overheads_weekly_item = overheads_weekly * share
-        weekly_cost_item = prisoner_weekly_item + sup_weekly_item + overheads_weekly_item
+        weekly_cost_item = prisoner_weekly_item + inst_weekly_item + overheads_weekly_item
 
         actual_units = cap_100 * (output_pct / 100.0)
         unit_cost_base = (weekly_cost_item / actual_units) if actual_units > 0 else None
@@ -577,11 +564,11 @@ def calculate_production_contractual(items, output_percents):
             "Unit Cost (£)": unit_cost_base,
             "Unit Price ex VAT (£)": unit_price_ex_vat,
             "Unit Price inc VAT (£)": unit_price_inc_vat,
-            # Diagnostics
+            # Diagnostics (not exported by default)
             "Capacity @100% (units)": cap_100,
             "Weekly Cost (£)": weekly_cost_item,
             "Weekly: Prisoners (£)": prisoner_weekly_item,
-            "Weekly: Supervisors (£)": sup_weekly_item,
+            "Weekly: Instructors (£)": inst_weekly_item,
             "Weekly: Overheads (£)": overheads_weekly_item,
             "Share": share,
         })
@@ -600,14 +587,59 @@ if workshop_mode == "Host":
         else:
             heading_name = customer_name if str(customer_name).strip() else "Customer"
             st.subheader(f"Host Contract for {heading_name} (costs are per month)")
-            breakdown, totals = calculate_host_costs()
+
+            # Build host breakdown (monthly)
+            breakdown = {}
+            breakdown["Prisoner wages"] = num_prisoners * prisoner_salary * (52 / 12)
+            instructor_cost = 0.0
+            if not customer_covers_supervisors:
+                instructor_cost = sum((s / 12) * (effective_pct / 100) for s in supervisor_salaries)
+            breakdown["Instructors"] = instructor_cost
+            elec_m, gas_m = monthly_energy_costs()
+            water_m = monthly_water_costs()
+            breakdown["Electricity (estimated)"] = elec_m
+            breakdown["Gas (estimated)"] = gas_m
+            breakdown["Water (estimated)"] = water_m
+            breakdown["Administration"] = admin_monthly
+            if maint_method.startswith("£/m² per year"):
+                rate = st.session_state.get("maint_rate_per_m2_y", 8.0)
+                breakdown["Depreciation/Maintenance (estimated)"] = (rate * area_m2) / 12.0
+            else:
+                breakdown["Depreciation/Maintenance (estimated)"] = maint_monthly
+
+            overheads_subtotal = (
+                breakdown.get("Electricity (estimated)", 0.0)
+                + breakdown.get("Gas (estimated)", 0.0)
+                + breakdown.get("Water (estimated)", 0.0)
+                + breakdown.get("Administration", 0.0)
+                + breakdown.get("Depreciation/Maintenance (estimated)", 0.0)
+            )
+            dev_baseline_rate = 0.20
+            dev_baseline_amount = overheads_subtotal * dev_baseline_rate
+            if customer_type == "Commercial":
+                dev_applied_rate = dev_rate
+                dev_applied_amount = overheads_subtotal * dev_applied_rate
+                reduction_amount = max(dev_baseline_amount - dev_applied_amount, 0.0)
+                breakdown["Development charge baseline (20% of overheads)"] = dev_baseline_amount
+                if reduction_amount > 0:
+                    breakdown["Support reduction (employment support)"] = -reduction_amount
+                breakdown["Development charge (applied)"] = dev_applied_amount
+            else:
+                breakdown["Development charge (applied)"] = 0.0
+
+            subtotal = sum(breakdown.values())
+            vat_amount = (subtotal * (vat_rate / 100.0)) if (customer_type == "Commercial" and apply_vat) else 0.0
+            grand_total = subtotal + vat_amount
+
             rows = list(breakdown.items()) + [
-                ("Subtotal", sum(breakdown.values())),
-                (f"VAT ({totals.get('VAT %',0):.1f}%)", totals.get("VAT (£)",0)),
-                ("Grand Total (£/month)", totals.get("Grand Total (£/month)",0)),
+                ("Subtotal", subtotal),
+                (f"VAT ({vat_rate:.1f}%)", vat_amount) if (customer_type == "Commercial" and apply_vat) else ("VAT (0.0%)", 0.0),
+                ("Grand Total (£/month)", grand_total),
             ]
             host_df = pd.DataFrame(rows, columns=["Item", "Amount (£)"])
             st.markdown(_render_host_df_to_html(host_df), unsafe_allow_html=True)
+
+            # Downloads
             st.download_button("Download CSV (Host)", data=export_csv_bytes(host_df), file_name="host_quote.csv", mime="text/csv")
             st.download_button("Download PDF-ready HTML (Host)", data=export_html(host_df, None, title="Host Quote"), file_name="host_quote.html", mime="text/html")
 
@@ -686,7 +718,7 @@ elif workshop_mode == "Production":
 
                 results = calculate_production_contractual(items, output_percents)
 
-                # Summarise results in a simple HTML table
+                # Export table
                 prod_df = pd.DataFrame(
                     [{k: (None if r[k] is None else (round(float(r[k]), 2) if isinstance(r[k], (int, float)) else r[k]))
                       for k in ["Item", "Output %", "Units/week", "Unit Cost (£)", "Unit Price ex VAT (£)", "Unit Price inc VAT (£)"]}
@@ -732,12 +764,12 @@ elif workshop_mode == "Production":
                 assigned_total = num_prisoners + additional_prisoners
 
                 overheads_weekly, _detail = weekly_overheads_total()
-                sup_weekly_total = (
+                inst_weekly_total = (
                     sum((s / 52) * (effective_pct / 100) for s in supervisor_salaries)
                     if not customer_covers_supervisors else 0.0
                 )
                 prisoners_weekly_cost = assigned_total * prisoner_salary
-                weekly_cost_total = prisoners_weekly_cost + sup_weekly_total + overheads_weekly
+                weekly_cost_total = prisoners_weekly_cost + inst_weekly_total + overheads_weekly
 
                 job_cost_ex_vat = weekly_cost_total * weeks_to_deadline
                 vat_amount = (job_cost_ex_vat * (vat_rate / 100.0)) if (customer_type == "Commercial" and apply_vat) else 0.0
@@ -756,7 +788,7 @@ elif workshop_mode == "Production":
                 adhoc_rows = [
                     ("Weeks to deadline", weeks_to_deadline, False, False),
                     ("Weekly: Prisoners", prisoners_weekly_cost, True, False),
-                    ("Weekly: Supervisors (100%)", sup_weekly_total, True, False),
+                    ("Weekly: Instructors (100%)", inst_weekly_total, True, False),
                     ("Weekly: Overheads (100%)", overheads_weekly, True, False),
                     ("Weekly Total", weekly_cost_total, True, False),
                     ("Job Cost (ex VAT)", job_cost_ex_vat, True, False),
