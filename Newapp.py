@@ -11,6 +11,30 @@
 
 from io import BytesIO
 import math
+
+import json
+
+QUOTE_COUNTER_FILE = "quote_counter.json"
+
+def get_next_quote_number():
+    # Try to load the last used quote number from file
+    try:
+        if os.path.exists(QUOTE_COUNTER_FILE):
+            with open(QUOTE_COUNTER_FILE, "r") as f:
+                data = json.load(f)
+                last_num = int(data.get("last_quote", 0))
+        else:
+            last_num = 0
+        next_num = last_num + 1
+        # Format as PIGG0001, PIGG0002, etc.
+        quote_no = f"PIGG{next_num:04d}"
+        # Save back
+        with open(QUOTE_COUNTER_FILE, "w") as f:
+            json.dump({"last_quote": next_num}, f)
+        return quote_no
+    except Exception:
+        # Fallback: use timestamp
+        return "PIGG" + datetime.now().strftime("%Y%m%d%H%M%S")
 from datetime import date
 import pandas as pd
 import streamlit as st
@@ -417,6 +441,10 @@ def export_csv_bytes(df: pd.DataFrame) -> BytesIO:
 # Improved HTML export (styled)
 # --------------------------
 
+# Prepare quote header fields for export
+quote_no = get_next_quote_number()
+quote_date = datetime.now().strftime("%d %B %Y")
+
 def export_html(host_df: pd.DataFrame | None, prod_df: pd.DataFrame | None, title="Quote") -> BytesIO:
     css = f"""
     <style>
@@ -641,7 +669,7 @@ if workshop_mode == "Host":
 
             # Downloads
             st.download_button("Download CSV (Host)", data=export_csv_bytes(host_df), file_name="host_quote.csv", mime="text/csv")
-            st.download_button("Download PDF-ready HTML (Host)", data=export_html(host_df, None, title="Host Quote"), file_name="host_quote.html", mime="text/html")
+            st.download_button("Generate Quote and Exit (Host)", data=export_html(host_df, None, title="Host Quote"), file_name="host_quote.html", mime="text/html")
 
 # PRODUCTION branch
 elif workshop_mode == "Production":
@@ -727,7 +755,7 @@ elif workshop_mode == "Production":
                 st.markdown(_render_generic_df_to_html(prod_df), unsafe_allow_html=True)
 
                 st.download_button("Download CSV (Production)", data=export_csv_bytes(prod_df), file_name="production_quote.csv", mime="text/csv")
-                st.download_button("Download PDF-ready HTML (Production)", data=export_html(None, prod_df, title="Production Quote"), file_name="production_quote.html", mime="text/html")
+                st.download_button("Generate Quote and Exit (Production)", data=export_html(None, prod_df, title="Production Quote"), file_name="production_quote.html", mime="text/html")
 
     # B) AD-HOC COSTS (single item) with deadline
     else:
@@ -809,7 +837,7 @@ elif workshop_mode == "Production":
                 adhoc_export_df = pd.DataFrame(export_rows, columns=["Item", "Amount (£)"])
 
                 st.download_button("Download CSV (Ad‑hoc)", data=export_csv_bytes(adhoc_export_df), file_name="adhoc_quote.csv", mime="text/csv")
-                st.download_button("Download PDF-ready HTML (Ad‑hoc)", data=export_html(None, adhoc_export_df, title=f"Ad-hoc Quote — {display_name}"), file_name="adhoc_quote.html", mime="text/html")
+                st.download_button("Generate Quote and Exit (Ad‑hoc)", data=export_html(None, adhoc_export_df, title=f"Ad-hoc Quote — {display_name}"), file_name="adhoc_quote.html", mime="text/html")
 
 # --------------------------
 # Footer: Reset Selections (green per request)
