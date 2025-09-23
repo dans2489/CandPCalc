@@ -1,4 +1,3 @@
-from datetime import datetime
 # Cost and Price Calculator — Streamlit app
 # v4.1 (2025-09-23)
 # ---------------------------------------------------------------------
@@ -469,33 +468,7 @@ def export_html(host_df: pd.DataFrame | None, prod_df: pd.DataFrame | None, titl
         parts.append("</div>")
     parts.append("<div class='footer-note'>Prices are indicative and may be subject to change based on final scope and site conditions.</div>")
     parts.append("</body></html>")
-    
-    quote_no = get_next_quote_number()
-    today_str = datetime.today().strftime("%d %B %Y")
-    header_block = f"""
-    <div style='display: flex; align-items: center; gap: 24px; margin-bottom: 16px;'>
-      <img src='assets/logos/NFN-new-logo.png' alt='New Futures Network Logo' style='max-width: 180px;'>
-      <div>
-        <div style='font-weight: bold; font-size: 1.2em;'>New Futures Network</div>
-        <div>HM Prison & Probation Service</div>
-        <div style='margin-top: 12px; font-size: 1.3em; font-weight: bold;'>Production Contract Quotation</div>
-        <table style='margin-top: 12px;'>
-          <tr><td><b>Prison Name:</b></td><td>{_html_escape(prison_choice)}</td></tr>
-          <tr><td><b>Customer Name:</b></td><td>{_html_escape(customer_name)}</td></tr>
-          <tr><td><b>Date:</b></td><td>{today_str}</td></tr>
-          <tr><td><b>Quote No:</b></td><td>{quote_no}</td></tr>
-        </table>
-      </div>
-    </div>
-    <p>
-    We are pleased to set out below the terms of our Quotation for the Goods and/or Services you are currently seeking.
-    We confirm that this Quotation and any subsequent contract entered into as a result is, and will be, subject exclusively
-    to our Standard Conditions of Sale of Goods and/or Services a copy of which is available on request. Please note that all
-    prices are exclusive of VAT and carriage costs at time of order of which the customer shall be additionally liable to pay.
-    </p>
-    """
-    parts.append(header_block)
-b = BytesIO("".join(parts).encode("utf-8")); b.seek(0); return b
+    b = BytesIO("".join(parts).encode("utf-8")); b.seek(0); return b
 
 # --------------------------
 # Host costs (monthly)
@@ -668,7 +641,7 @@ if workshop_mode == "Host":
 
             # Downloads
             st.download_button("Download CSV (Host)", data=export_csv_bytes(host_df), file_name="host_quote.csv", mime="text/csv")
-            st.download_button("Generate Quote and Exit (Host)", data=export_html(host_df, None, title="Host Quote"), file_name="host_quote.html", mime="text/html")
+            st.download_button("Download PDF-ready HTML (Host)", data=export_html(host_df, None, title="Host Quote"), file_name="host_quote.html", mime="text/html")
 
 # PRODUCTION branch
 elif workshop_mode == "Production":
@@ -754,7 +727,7 @@ elif workshop_mode == "Production":
                 st.markdown(_render_generic_df_to_html(prod_df), unsafe_allow_html=True)
 
                 st.download_button("Download CSV (Production)", data=export_csv_bytes(prod_df), file_name="production_quote.csv", mime="text/csv")
-                st.download_button("Generate Quote and Exit (Production)", data=export_html(None, prod_df, title="Production Quote"), file_name="production_quote.html", mime="text/html")
+                st.download_button("Download PDF-ready HTML (Production)", data=export_html(None, prod_df, title="Production Quote"), file_name="production_quote.html", mime="text/html")
 
     # B) AD-HOC COSTS (single item) with deadline
     else:
@@ -836,7 +809,7 @@ elif workshop_mode == "Production":
                 adhoc_export_df = pd.DataFrame(export_rows, columns=["Item", "Amount (£)"])
 
                 st.download_button("Download CSV (Ad‑hoc)", data=export_csv_bytes(adhoc_export_df), file_name="adhoc_quote.csv", mime="text/csv")
-                st.download_button("Generate Quote and Exit (Ad‑hoc)", data=export_html(None, adhoc_export_df, title=f"Ad-hoc Quote — {display_name}"), file_name="adhoc_quote.html", mime="text/html")
+                st.download_button("Download PDF-ready HTML (Ad‑hoc)", data=export_html(None, adhoc_export_df, title=f"Ad-hoc Quote — {display_name}"), file_name="adhoc_quote.html", mime="text/html")
 
 # --------------------------
 # Footer: Reset Selections (green per request)
@@ -850,20 +823,3 @@ if st.button("Reset Selections", key="reset_app_footer"):
     except Exception:
         st.experimental_rerun()
 st.markdown('\n', unsafe_allow_html=True)
-
-
-def get_next_quote_number():
-    counter_file = "quote_counter.txt"
-    try:
-        if os.path.exists(counter_file):
-            with open(counter_file, "r") as f:
-                last = f.read().strip()
-                num = int(re.search(r"(\\d+)$", last).group(1)) + 1
-        else:
-            num = 1
-        quote_no = f"PIGG{num:04d}"
-        with open(counter_file, "w") as f:
-            f.write(quote_no)
-        return quote_no
-    except Exception:
-        return "PIGG" + datetime.now().strftime("%Y%m%d%H%M%S")
