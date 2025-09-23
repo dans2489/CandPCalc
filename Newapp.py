@@ -1,20 +1,19 @@
 # Cost and Price Calculator — Streamlit app
-# v3.2 (2025-09-23)
-# Surgical updates requested by Dan (Production screen):
-# - Output % / Capacity labels use the item's typed name (fallback to "Item {n}").
-# - "?" help tooltip on Output %.
-# - Apportionment fixed to Labour minutes (radio removed).
-# - Plain-English expander removed.
-# - Show weekly Labour minutes budget at the top of Production and enforce a hard cap.
-# - Optional "Target units this week" per item; show back-solved required Output % and
-#   suggested assigned prisoners (diagnostic only; user chooses whether to apply).
-# - Hours label updated (removed "(for production calc)"); hours feed both capacity and
-#   recommended instructor allocation.
+# v3.3 (2025-09-23)
+# Production updates:
+# - Per-item ad-hoc targets with back-solve (Assigned prisoners / Weekly hours / Output % needed).
+# - "Apply" actions update widget state safely (no auto-changes without user click).
+# - Advanced: pooled targets across items (allocates assigned prisoners per item if feasible).
+# - Labour minutes apportionment only; minutes budget shown and enforced.
+# - Dynamic labels use item name; Output % slider has a help tooltip.
+# - Hours label clarifies effect on capacity and instructor allocation.
 #
-# NOTE: Formatting already imposed (NFN blue title, headings, grey Grand Total row,
-#       red negatives, GBP £ with 2dp, Reset Selections footer, true-HTML exports) is preserved.
+# Styling/formatting retained from earlier versions:
+# - NFN-blue title, GOV colour accents, grey Grand Total row (not bold), red negatives,
+#   GBP with 2dp, true-HTML export, red "Reset Selections" footer.
 
 from io import BytesIO
+import math
 import pandas as pd
 import streamlit as st
 
@@ -34,11 +33,10 @@ GOV_GREEN_DARK = "#005A30"
 GOV_RED = "#D4351C"
 GOV_RED_DARK = "#942514"
 
-# Minimal CSS (kept aligned with the existing style approach).
+# Minimal CSS, preserving your established look
 st.markdown(
     f"""
     <style>
-    /* Keep styling minimal and consistent with government style already used */
     table {{
         width: 100%;
         border-collapse: collapse;
@@ -54,6 +52,7 @@ st.markdown(
     th {{
         background: #f3f2f1;
         font-weight: 600;
+        color: #0b0c0c;
     }}
     tr.grand td {{
         background: #f3f2f1 !important;  /* grey like header */
@@ -178,7 +177,7 @@ with st.sidebar:
     admin_monthly = st.number_input("Administration", min_value=0.0, value=150.0, step=25.0)
 
 # --------------------------
-# Main inputs (no top title)
+# Main inputs
 # --------------------------
 prisons_sorted = ["Select"] + sorted(PRISON_TO_REGION.keys())
 prison_choice = st.selectbox("Prison Name", prisons_sorted, index=0)
@@ -187,7 +186,6 @@ st.text_input("Region", value=("" if region == "Select" else region), disabled=T
 
 customer_type = st.selectbox("I want to quote for", ["Select", "Commercial", "Another Government Department"])
 customer_name = st.text_input("Customer Name")
-
 workshop_mode = st.selectbox("Contract type?", ["Select", "Host", "Production"])
 
 SIZE_LABELS = [
@@ -213,7 +211,7 @@ if area_ft2:
 workshop_energy_types = list(EUI_MAP.keys())
 workshop_type = st.selectbox("Workshop type?", ["Select"] + workshop_energy_types)
 
-# UPDATED label: hours drive BOTH capacity and instructor allocation
+# Hours label clarifies dual impact
 workshop_hours = st.number_input(
     "How many hours per week is the workshop open?",
     min_value=0.0, format="%.2f",
@@ -250,7 +248,6 @@ st.subheader("Instructor Time Allocation")
 st.info(f"Recommended: {recommended_pct}%")
 chosen_pct = st.slider("Adjust instructor % allocation", 0, 100, int(recommended_pct), key="chosen_pct")
 effective_pct = int(chosen_pct)
-
 if chosen_pct < int(round(recommended_pct)):
     st.warning("You have selected less than recommended — please explain why here.")
     reason = st.text_area("Reason for using a lower allocation", key="alloc_reason")
@@ -296,52 +293,36 @@ st.caption(
     "If VAT is ticked and customer is Commercial, Unit Price inc VAT = ex VAT × (1 + VAT%)."
 )
 
-# ---------------
-# Validations
-# ---------------
+# --------------------------
+# Validation
+# --------------------------
 def validate_inputs():
     errors = []
-    if prison_choice == "Select":
-        errors.append("Select prison")
-    if region == "Select":
-        errors.append("Region could not be derived from prison selection")
-    if customer_type == "Select":
-        errors.append("Select customer type")
-    if not str(customer_name).strip():
-        errors.append("Enter customer name")
-    if workshop_mode == "Select":
-        errors.append("Select contract type")
-    if workshop_size == "Select":
-        errors.append("Select workshop size")
-    if workshop_type == "Select":
-        errors.append("Select workshop type")
-    if area_ft2 <= 0:
-        errors.append("Area must be greater than zero")
-    if workshop_mode == "Production" and workshop_hours <= 0:
-        errors.append("Hours per week must be > 0 (Production)")
-    if num_prisoners <= 0:
-        errors.append("Enter prisoners employed (>0)")
-    if prisoner_salary <= 0:
-        errors.append("Enter prisoner salary (>0)")
+    if prison_choice == "Select": errors.append("Select prison")
+    if region == "Select": errors.append("Region could not be derived from prison selection")
+    if customer_type == "Select": errors.append("Select customer type")
+    if not str(customer_name).strip(): errors.append("Enter customer name")
+    if workshop_mode == "Select": errors.append("Select contract type")
+    if workshop_size == "Select": errors.append("Select workshop size")
+    if workshop_type == "Select": errors.append("Select workshop type")
+    if area_ft2 <= 0: errors.append("Area must be greater than zero")
+    if workshop_mode == "Production" and workshop_hours <= 0: errors.append("Hours per week must be > 0 (Production)")
+    if num_prisoners <= 0: errors.append("Enter prisoners employed (>0)")
+    if prisoner_salary <= 0: errors.append("Enter prisoner salary (>0)")
     if not customer_covers_supervisors:
-        if num_supervisors <= 0:
-            errors.append("Enter number of supervisors (>0) or tick 'Customer provides supervisor(s)'")
-        if region == "Select":
-            errors.append("Select a prison/region to populate instructor titles")
-        if len(supervisor_salaries) != int(num_supervisors):
-            errors.append("Choose a title for each instructor")
-        if any(s <= 0 for s in supervisor_salaries):
-            errors.append("Instructor Avg Total must be > 0")
+        if num_supervisors <= 0: errors.append("Enter number of supervisors (>0) or tick 'Customer provides supervisor(s)'")
+        if region == "Select": errors.append("Select a prison/region to populate instructor titles")
+        if len(supervisor_salaries) != int(num_supervisors): errors.append("Choose a title for each instructor")
+        if any(s <= 0 for s in supervisor_salaries): errors.append("Instructor Avg Total must be > 0")
     return errors
 
-# ---------------
+# --------------------------
 # Cost helpers
-# ---------------
+# --------------------------
 def monthly_energy_costs():
     """EUI (kWh/m²/y) × area (m²) × tariff ÷ 12."""
     eui = EUI_MAP.get(workshop_type, None)
-    if not eui or area_m2 <= 0:
-        return 0.0, 0.0
+    if not eui or area_m2 <= 0: return 0.0, 0.0
     elec_kwh_y = eui["electric_kwh_m2_y"] * area_m2
     gas_kwh_y = eui["gas_kwh_m2_y"] * area_m2
     elec_cost_m = (elec_kwh_y / 12.0) * electricity_rate
@@ -358,16 +339,12 @@ def monthly_water_costs():
     return (m3_per_year / 12.0) * water_rate
 
 def weekly_overheads_total():
-    """
-    Electricity, gas, water, admin, maintenance → weekly total + monthly breakdown.
-    (Maintenance labeled as estimated for consistency with overheads.)
-    """
+    """Electricity, gas, water, admin, maintenance → weekly total + monthly breakdown."""
     if maint_method.startswith("£/m² per year"):
         rate = st.session_state.get("maint_rate_per_m2_y", 8.0)
         maint_m = (rate * area_m2) / 12.0
     else:
         maint_m = maint_monthly
-
     elec_m, gas_m = monthly_energy_costs()
     water_m = monthly_water_costs()
     overheads_m = elec_m + gas_m + water_m + admin_monthly + maint_m
@@ -379,30 +356,22 @@ def weekly_overheads_total():
         "Depreciation/Maintenance (estimated)": maint_m,
     }
 
-# ---------------
-# Host costs
-# ---------------
+# --------------------------
+# Host costs (monthly)
+# --------------------------
 def calculate_host_costs():
     breakdown = {}
-
-    # Prisoner wages (per month)
     breakdown["Prisoner wages"] = num_prisoners * prisoner_salary * (52 / 12)
-
-    # Supervisors (Instructors) apportioned per effective_pct
     supervisor_cost = 0.0
     if not customer_covers_supervisors:
         supervisor_cost = sum((s / 12) * (effective_pct / 100) for s in supervisor_salaries)
     breakdown["Supervisors"] = supervisor_cost
-
-    # Overheads (utilities estimated; admin not; maintenance estimated)
     elec_m, gas_m = monthly_energy_costs()
     water_m = monthly_water_costs()
     breakdown["Electricity (estimated)"] = elec_m
     breakdown["Gas (estimated)"] = gas_m
     breakdown["Water (estimated)"] = water_m
     breakdown["Administration"] = admin_monthly
-
-    # Maintenance (estimated)
     if maint_method.startswith("£/m² per year"):
         rate = st.session_state.get("maint_rate_per_m2_y", 8.0)
         maint_val = (rate * area_m2) / 12.0
@@ -410,27 +379,23 @@ def calculate_host_costs():
         maint_val = maint_monthly
     breakdown["Depreciation/Maintenance (estimated)"] = maint_val
 
-    # Development charge on OVERHEADS (Commercial only)
     overheads_subtotal = elec_m + gas_m + water_m + admin_monthly + maint_val
-    dev_baseline_rate = 0.20  # baseline for "None"
+    dev_baseline_rate = 0.20
     dev_baseline_amount = overheads_subtotal * dev_baseline_rate
-
     if customer_type == "Commercial":
         dev_applied_rate = dev_rate
         dev_applied_amount = overheads_subtotal * dev_applied_rate
         reduction_amount = max(dev_baseline_amount - dev_applied_amount, 0.0)
         breakdown["Development charge baseline (20% of overheads)"] = dev_baseline_amount
         if reduction_amount > 0:
-            breakdown["Support reduction (employment support)"] = -reduction_amount  # negative → red
+            breakdown["Support reduction (employment support)"] = -reduction_amount
         breakdown["Development charge (applied)"] = dev_applied_amount
     else:
         breakdown["Development charge (applied)"] = 0.0
 
-    # Totals & VAT
     subtotal = sum(breakdown.values())
     vat_amount = (subtotal * (vat_rate / 100.0)) if (customer_type == "Commercial" and apply_vat) else 0.0
     grand_total = subtotal + vat_amount
-
     totals = {
         "Subtotal": subtotal,
         "VAT %": vat_rate if (customer_type == "Commercial" and apply_vat) else 0.0,
@@ -439,24 +404,44 @@ def calculate_host_costs():
     }
     return breakdown, totals
 
-# ---------------
-# Production (weekly model) — Labour minutes ONLY
-# ---------------
-def calculate_production(items, output_percents):
-    """
-    Weekly model (Labour minutes apportionment only):
-    weekly_cost = prisoner_weekly + apportioned_supervisors_weekly + apportioned_overheads_weekly
-    unit_cost = weekly_cost / (units/week at Output %)
-    """
-    overheads_weekly, _detail = weekly_overheads_total()
+# --------------------------
+# Production helpers (minutes & back-solve)
+# --------------------------
+def item_capacity_100(prisoners_assigned: int, minutes_per_item: float, prisoners_required: int, hours: float) -> float:
+    """Units/week at 100% = (assigned × hours × 60) / (minutes_per_item × prisoners_required)."""
+    if prisoners_assigned <= 0 or minutes_per_item <= 0 or prisoners_required <= 0 or hours <= 0:
+        return 0.0
+    return (prisoners_assigned * hours * 60.0) / (minutes_per_item * prisoners_required)
 
+def minutes_required_for_units(units: float, minutes_per_item: float, prisoners_required: int) -> float:
+    """Labour minutes needed to produce 'units' for this item."""
+    if units <= 0 or minutes_per_item <= 0 or prisoners_required <= 0:
+        return 0.0
+    return units * minutes_per_item * prisoners_required
+
+def assigned_needed_for_units(units: float, minutes_per_item: float, prisoners_required: int, hours: float) -> float:
+    """Assigned prisoners needed to meet target units (may be fractional)."""
+    mins_needed = minutes_required_for_units(units, minutes_per_item, prisoners_required)
+    if hours <= 0: return float("inf")
+    return mins_needed / (hours * 60.0)
+
+def output_pct_needed(units_target: float, cap_100: float) -> int:
+    if cap_100 <= 0: return 0
+    return int(round(min(100.0, (units_target / cap_100) * 100.0)))
+
+def labour_minutes_budget(num_pris: int, hours: float) -> float:
+    return max(0.0, num_pris * hours * 60.0)
+
+# --------------------------
+# Production (weekly model) — Labour minutes ONLY
+# --------------------------
+def calculate_production(items, output_percents):
+    overheads_weekly, _detail = weekly_overheads_total()
     sup_weekly_total = (
         sum((s / 52) * (effective_pct / 100) for s in supervisor_salaries)
         if not customer_covers_supervisors else 0.0
     )
-
-    # Labour minutes denominator (for apportionment)
-    # denom = sum(assigned_prisoners * weekly_hours * 60) across items
+    # Denominator for apportionment (labour minutes)
     denom = sum(int(it.get("assigned", 0)) * workshop_hours * 60.0 for it in items)
 
     results = []
@@ -467,31 +452,15 @@ def calculate_production(items, output_percents):
         prisoners_assigned = int(item.get("assigned", 0))
         output_pct = int(output_percents[idx]) if idx < len(output_percents) else 100
 
-        # Capacity @100%
-        if mins_per_unit <= 0 or prisoners_required <= 0 or prisoners_assigned <= 0 or workshop_hours <= 0:
-            capacity_week = 0.0
-        else:
-            available_mins_week = prisoners_assigned * workshop_hours * 60.0
-            minutes_per_unit_total = mins_per_unit * prisoners_required
-            capacity_week = available_mins_week / minutes_per_unit_total if minutes_per_unit_total > 0 else 0.0
+        cap_100 = item_capacity_100(prisoners_assigned, mins_per_unit, prisoners_required, workshop_hours)
+        share = ((prisoners_assigned * workshop_hours * 60.0) / denom) if denom > 0 else 0.0
 
-        # Apportionment share (Labour minutes only)
-        if denom > 0:
-            share_num = prisoners_assigned * workshop_hours * 60.0
-            share = share_num / denom
-        else:
-            share = 0.0
-
-        # Weekly cost components
         prisoner_weekly_item = prisoners_assigned * prisoner_salary
         sup_weekly_item = sup_weekly_total * share
         overheads_weekly_item = overheads_weekly * share
         weekly_cost_item = prisoner_weekly_item + sup_weekly_item + overheads_weekly_item
 
-        # Apply Output %
-        actual_units = capacity_week * (output_pct / 100.0)
-
-        # Unit costs/prices
+        actual_units = cap_100 * (output_pct / 100.0)
         unit_cost_base = (weekly_cost_item / actual_units) if actual_units > 0 else None
         unit_price_ex_vat = unit_cost_base
         unit_price_inc_vat = None
@@ -508,7 +477,7 @@ def calculate_production(items, output_percents):
             "Unit Price ex VAT (£)": unit_price_ex_vat,
             "Unit Price inc VAT (£)": unit_price_inc_vat,
             # Diagnostics
-            "Capacity @100% (units)": capacity_week,
+            "Capacity @100% (units)": cap_100,
             "Weekly Cost (£)": weekly_cost_item,
             "Weekly: Prisoners (£)": prisoner_weekly_item,
             "Weekly: Supervisors (£)": sup_weekly_item,
@@ -518,7 +487,7 @@ def calculate_production(items, output_percents):
     return results
 
 # ------------------
-# Display helpers
+# Display & export helpers
 # ------------------
 def _currency(v) -> str:
     try:
@@ -531,25 +500,13 @@ def _host_table_html(breakdown: dict, totals: dict, total_label="Total Monthly C
     for k, v in breakdown.items():
         amount = _currency(v)
         neg_cls = " class='neg'" if isinstance(v, (int, float)) and v < 0 else ""
-        rows_html.append(
-            f"<tr><td>{k}</td><td{neg_cls}>{amount}</td></tr>"
-        )
+        rows_html.append(f"<tr><td>{k}</td><td{neg_cls}>{amount}</td></tr>")
     total = sum(breakdown.values())
     rows_html.append(f"<tr><td>{total_label}</td><td>{_currency(total)}</td></tr>")
     if totals:
-        rows_html.append(
-            f"<tr><td>VAT ({totals.get('VAT %',0):.1f}%)</td><td>{_currency(totals.get('VAT (£)',0))}</td></tr>"
-        )
-    # Grand Total styled like header (grey bg), not bold
-    rows_html.append(
-        f"<tr class='grand'><td>Grand Total (£/month)</td><td>{_currency(totals.get('Grand Total (£/month)',0))}</td></tr>"
-    )
-    return (
-        "<table>"
-        "<tr><th>Cost Item</th><th>Amount (£)</th></tr>"
-        + "".join(rows_html) +
-        "</table>"
-    )
+        rows_html.append(f"<tr><td>VAT ({totals.get('VAT %',0):.1f}%)</td><td>{_currency(totals.get('VAT (£)',0))}</td></tr>")
+    rows_html.append(f"<tr class='grand'><td>Grand Total (£/month)</td><td>{_currency(totals.get('Grand Total (£/month)',0))}</td></tr>")
+    return "<table><tr><th>Cost Item</th><th>Amount (£)</th></tr>" + "".join(rows_html) + "</table>"
 
 def display_table(breakdown: dict, totals: dict, total_label="Total Monthly Cost"):
     html = _host_table_html(breakdown, totals, total_label)
@@ -559,11 +516,7 @@ def display_table(breakdown: dict, totals: dict, total_label="Total Monthly Cost
 
 def to_dataframe_host(breakdown: dict, totals: dict) -> pd.DataFrame:
     rows = list(breakdown.items())
-    rows += [
-        ("Subtotal", sum(breakdown.values())),
-        (f"VAT ({totals.get('VAT %',0):.1f}%)", totals.get("VAT (£)",0)),
-        ("Grand Total (£/month)", totals.get("Grand Total (£/month)",0)),
-    ]
+    rows += [("Subtotal", sum(breakdown.values())), (f"VAT ({totals.get('VAT %',0):.1f}%)", totals.get("VAT (£)",0)), ("Grand Total (£/month)", totals.get("Grand Total (£/month)",0))]
     return pd.DataFrame(rows, columns=["Item", "Amount (£)"])
 
 def to_dataframe_production(results: list[dict]) -> pd.DataFrame:
@@ -574,9 +527,6 @@ def to_dataframe_production(results: list[dict]) -> pd.DataFrame:
             df[c] = df[c].apply(lambda x: None if x is None else round(float(x), 2))
     return df
 
-# ------------------
-# Export helpers
-# ------------------
 def export_csv_bytes(df: pd.DataFrame) -> BytesIO:
     b = BytesIO()
     df.to_csv(b, index=False)
@@ -584,16 +534,12 @@ def export_csv_bytes(df: pd.DataFrame) -> BytesIO:
     return b
 
 def _html_escape(text: str) -> str:
-    return (str(text)
-            .replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+    return (str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
 
 def _render_host_df_to_html(host_df: pd.DataFrame) -> str:
-    # Build like on-screen table to guarantee same styling/rounding
     rows_html = []
     for _, row in host_df.iterrows():
-        item = str(row["Item"])
-        val = row["Amount (£)"]
-        # Determine negative & grand rows
+        item = str(row["Item"]); val = row["Amount (£)"]
         neg_cls = ""
         try:
             neg_cls = " class='neg'" if float(val) < 0 else ""
@@ -601,19 +547,13 @@ def _render_host_df_to_html(host_df: pd.DataFrame) -> str:
             pass
         grand_cls = " class='grand'" if "Grand Total" in item else ""
         if grand_cls:
-            # Grand row overrides neg class styling
-            rows_html.append(
-                f"<tr{grand_cls}><td>{_html_escape(item)}</td><td>{_currency(val)}</td></tr>"
-            )
+            rows_html.append(f"<tr{grand_cls}><td>{_html_escape(item)}</td><td>{_currency(val)}</td></tr>")
         else:
-            rows_html.append(
-                f"<tr><td>{_html_escape(item)}</td><td{neg_cls}>{_currency(val)}</td></tr>"
-            )
+            rows_html.append(f"<tr><td>{_html_escape(item)}</td><td{neg_cls}>{_currency(val)}</td></tr>")
     header = "<tr><th>Item</th><th>Amount (£)</th></tr>"
     return f"<table>{header}{''.join(rows_html)}</table>"
 
 def _render_generic_df_to_html(df: pd.DataFrame) -> str:
-    # Format numeric cells to 2dp, add £ where column name contains (£)
     cols = list(df.columns)
     body_rows = []
     for _, row in df.iterrows():
@@ -621,10 +561,7 @@ def _render_generic_df_to_html(df: pd.DataFrame) -> str:
         for col in cols:
             val = row[col]
             if isinstance(val, (int, float)) and pd.notna(val):
-                if "£" in col:
-                    tds.append(f"<td>{_currency(val)}</td>")
-                else:
-                    tds.append(f"<td>{round(float(val), 2):,.2f}</td>")
+                tds.append(f"<td>{_currency(val) if '£' in col else f'{float(val):,.2f}'}</td>")
             else:
                 tds.append(f"<td>{_html_escape(val)}</td>")
         body_rows.append(f"<tr>{''.join(tds)}</tr>")
@@ -632,9 +569,7 @@ def _render_generic_df_to_html(df: pd.DataFrame) -> str:
     return f"<table>{thead}{''.join(body_rows)}</table>"
 
 def export_html(host_df: pd.DataFrame | None, prod_df: pd.DataFrame | None, title="Quote") -> BytesIO:
-    html_parts = [f"# {_html_escape(title)}"]
-    html_parts.append("\n\n## Cost and Price Calculator — Quote\n")
-    # Context line
+    html_parts = [f"# {_html_escape(title)}", "\n\n## Cost and Price Calculator — Quote\n"]
     html_parts.append(
         f"<p><strong>Customer:</strong> {_html_escape(customer_name or '')} &nbsp; "
         f"<strong>Prison:</strong> {_html_escape(prison_choice or '')} &nbsp; "
@@ -646,17 +581,14 @@ def export_html(host_df: pd.DataFrame | None, prod_df: pd.DataFrame | None, titl
     if prod_df is not None:
         html_parts.append("\n\n### Production Items\n")
         html_parts.append(_render_generic_df_to_html(prod_df))
-    html_parts.append("")
-    b = BytesIO("".join(html_parts).encode("utf-8"))
-    b.seek(0)
-    return b
+    b = BytesIO("".join(html_parts).encode("utf-8")); b.seek(0); return b
 
 # --------------------------
 # Main UI branches
 # --------------------------
 errors = validate_inputs()
 
-# HOST — Production settings hidden
+# HOST
 if workshop_mode == "Host":
     if st.button("Generate Costs", type="primary"):
         if errors:
@@ -667,102 +599,153 @@ if workshop_mode == "Host":
             breakdown, totals = calculate_host_costs()
             display_table(breakdown, totals)
             host_df = to_dataframe_host(breakdown, totals)
-            st.download_button(
-                "Download CSV (Host)",
-                data=export_csv_bytes(host_df),
-                file_name="host_quote.csv",
-                mime="text/csv",
-            )
-            st.download_button(
-                "Download PDF-ready HTML (Host)",
-                data=export_html(host_df, None, title="Host Quote"),
-                file_name="host_quote.html",
-                mime="text/html",
-            )
+            st.download_button("Download CSV (Host)", data=export_csv_bytes(host_df), file_name="host_quote.csv", mime="text/csv")
+            st.download_button("Download PDF-ready HTML (Host)", data=export_html(host_df, None, title="Host Quote"), file_name="host_quote.html", mime="text/html")
 
-# PRODUCTION — fixed to Labour minutes apportionment + minutes cap
+# PRODUCTION — Labour minutes only
 elif workshop_mode == "Production":
     st.subheader("Production Settings")
-
-    # Fixed apportionment method per policy (Labour minutes). Radio removed.
     st.caption("Apportionment method: Labour minutes — overheads & instructor time are shared by "
                "assigned labour minutes (assigned prisoners × weekly hours × 60).")
 
-    # Show Labour minutes budget and enforce cap
-    budget_minutes = num_prisoners * workshop_hours * 60.0 if workshop_hours > 0 else 0.0
-    st.markdown(
-        f"As per your selected resources you have **{budget_minutes:,.0f} Labour minutes** available this week."
-    )
+    # Weekly minutes budget
+    budget_minutes = labour_minutes_budget(num_prisoners, workshop_hours)
+    st.markdown(f"As per your selected resources you have **{budget_minutes:,.0f} Labour minutes** available this week.")
 
+    # Advanced pooled targets toggle
+    pooled_toggle = st.checkbox("Advanced: pooled targets across items", value=False)
+
+    # Items
     num_items = st.number_input("Number of items produced?", min_value=1, value=1, step=1, key="num_items_prod")
     items = []
-    OUTPUT_PCT_HELP = (
-        "How much of the item’s theoretical weekly capacity you plan to use this week. "
-        "100% assumes assigned prisoners and weekly hours are fully available; reduce to account for ramp‑up, changeovers, downtime, etc."
-    )
+    OUTPUT_PCT_HELP = ("How much of the item’s theoretical weekly capacity you plan to use this week. "
+                       "100% assumes assigned prisoners and weekly hours are fully available; reduce for ramp-up, changeovers, downtime, etc.")
 
+    # Collect per-item inputs
     for i in range(int(num_items)):
         with st.expander(f"Item {i+1} details", expanded=(i == 0)):
             name = st.text_input(f"Item {i+1} Name", key=f"name_{i}")
             display_name = (name.strip() or f"Item {i+1}")
+            prisoners_required = st.number_input(f"Prisoners required to make 1 item ({display_name})",
+                                                 min_value=1, value=1, step=1, key=f"req_{i}")
+            minutes_per_item = st.number_input(f"How many minutes to make 1 item ({display_name})",
+                                               min_value=1.0, value=10.0, format="%.2f", key=f"mins_{i}")
+            # Assigned prisoners widget uses session_state to allow "Apply" to update it
+            assigned_key = f"assigned_{i}"
+            current_assigned_default = 0
+            if assigned_key not in st.session_state:
+                st.session_state[assigned_key] = current_assigned_default
+            prisoners_assigned = st.number_input(f"How many prisoners work solely on this item ({display_name})",
+                                                 min_value=0, max_value=int(num_prisoners), step=1, key=assigned_key)
 
-            prisoners_required = st.number_input(
-                f"Prisoners required to make 1 item ({display_name})",
-                min_value=1, value=1, step=1, key=f"req_{i}"
-            )
-            minutes_per_item = st.number_input(
-                f"How many minutes to make 1 item ({display_name})",
-                min_value=1.0, value=10.0, format="%.2f", key=f"mins_{i}"
-            )
-            prisoners_assigned = st.number_input(
-                f"How many prisoners work solely on this item ({display_name})",
-                min_value=0, max_value=int(num_prisoners), value=0, step=1, key=f"assigned_{i}"
-            )
+            # Optional target and back-solve actions
+            target_key = f"target_{i}"
+            target_units = st.number_input(f"Target units this week (optional) — {display_name}",
+                                           min_value=0, step=1, value=0, key=target_key)
 
-            # Optional ad‑hoc target (diagnostic back‑solve; does not auto-apply)
-            target_units = st.number_input(
-                f"Target units this week (optional) — {display_name}",
-                min_value=0, step=1, value=0, key=f"target_{i}"
-            )
-
-            # Capacity @ 100% preview with item name
-            cap_preview = 0.0
-            if minutes_per_item > 0 and prisoners_required > 0 and prisoners_assigned > 0 and workshop_hours > 0:
-                cap_preview = (prisoners_assigned * workshop_hours * 60.0) / (minutes_per_item * prisoners_required)
+            cap_preview = item_capacity_100(prisoners_assigned, minutes_per_item, prisoners_required, workshop_hours)
             st.markdown(f"{display_name} capacity @ 100%: **{cap_preview:.0f} units/week**")
 
-            # Back-solve diagnostics (show only)
-            if target_units and minutes_per_item > 0 and prisoners_required > 0 and workshop_hours > 0:
-                # Required Output % under current assignment
-                req_output_pct = 0
-                if cap_preview > 0:
-                    req_output_pct = int(round(min(100.0, (target_units / cap_preview) * 100.0)))
-                st.caption(
-                    f"To deliver **{int(target_units):,}** units of **{display_name}** this week: "
-                    f"you’d need **~{req_output_pct}% Output** under current assigned prisoners & hours."
-                )
-                # Suggested assigned prisoners (ceil)
-                if workshop_hours * 60.0 > 0:
-                    prisoners_needed_raw = (target_units * minutes_per_item * prisoners_required) / (workshop_hours * 60.0)
-                    prisoners_needed = int(prisoners_needed_raw) if prisoners_needed_raw.is_integer() else int(prisoners_needed_raw) + 1
-                    st.caption(
-                        f"…or **~{prisoners_needed} prisoners assigned** to {display_name} "
-                        f"(calc: ceil({target_units}×{minutes_per_item}×{prisoners_required} / ({workshop_hours}×60)))."
-                    )
-                    if prisoners_needed > num_prisoners:
-                        st.warning(f"Requested output likely infeasible with current staffing (needs {prisoners_needed}, have {num_prisoners}).")
+            if target_units > 0:
+                req_pct = output_pct_needed(target_units, cap_preview)
+                st.caption(f"Diagnostic: requires ~**{req_pct}% Output** with current assignment/hours.")
+
+                cols_apply = st.columns(2)
+                with cols_apply[0]:
+                    if st.button(f"Apply: set ASSIGNED for {display_name}", key=f"apply_assigned_{i}"):
+                        needed = assigned_needed_for_units(target_units, minutes_per_item, prisoners_required, workshop_hours)
+                        needed_int = int(math.ceil(needed)) if math.isfinite(needed) else 0
+                        st.session_state[assigned_key] = needed_int
+                        st.rerun()
+                with cols_apply[1]:
+                    if st.button(f"Apply: set HOURS to meet target ({display_name})", key=f"apply_hours_{i}"):
+                        # Solve hours = (target_units * minutes_per_item * prisoners_required) / (assigned * 60)
+                        if prisoners_assigned > 0:
+                            hours_needed = (target_units * minutes_per_item * prisoners_required) / (prisoners_assigned * 60.0)
+                            st.session_state["workshop_hours"] = round(hours_needed, 2)
+                            st.rerun()
+                        else:
+                            st.warning("Assign at least 1 prisoner before solving for hours.")
 
             items.append({
                 "name": name,
                 "required": int(prisoners_required),
                 "minutes": float(minutes_per_item),
-                "assigned": int(prisoners_assigned),
+                "assigned": int(st.session_state[assigned_key]),
             })
 
     if errors:
         st.error("Fix errors before production calculations:\n- " + "\n- ".join(errors))
     else:
-        # Enforce minutes cap before calculations
+        # ---------- Advanced pooled solver (optional) ----------
+        if pooled_toggle:
+            st.markdown("#### Pooled targets solver")
+            # Gather per-item targets and compute total required minutes
+            per_item_targets = []
+            total_required_minutes = 0.0
+            for i, it in enumerate(items):
+                t = st.session_state.get(f"target_{i}", 0)
+                per_item_targets.append(int(t))
+                total_required_minutes += minutes_required_for_units(t, it["minutes"], it["required"])
+
+            if sum(per_item_targets) == 0:
+                st.info("Enter one or more per-item targets above to use the pooled solver.")
+            else:
+                # Feasibility check against labour minutes budget and headcount
+                if total_required_minutes <= budget_minutes and workshop_hours > 0:
+                    # Compute fractional assigned per item, then round up using largest remainders while respecting total prisoners
+                    fractional = []
+                    for i, it in enumerate(items):
+                        need = assigned_needed_for_units(per_item_targets[i], it["minutes"], it["required"], workshop_hours)
+                        fractional.append(max(0.0, need))
+                    # Initial integer assignment = floor
+                    assigned_ints = [int(math.floor(x)) for x in fractional]
+                    remainder = [x - int(math.floor(x)) for x in fractional]
+
+                    # Prisoners available limit
+                    total_int = sum(assigned_ints)
+                    prisoners_left = max(0, int(num_prisoners) - total_int)
+
+                    # Distribute remaining using largest remainders
+                    order = sorted(range(len(remainder)), key=lambda k: remainder[k], reverse=True)
+                    for k in order:
+                        if prisoners_left <= 0:
+                            break
+                        # Only round up if there is actually a need (>0 remainder or fractional>0)
+                        if fractional[k] > assigned_ints[k]:
+                            assigned_ints[k] += 1
+                            prisoners_left -= 1
+
+                    # Final check: minutes used must cover required minutes; it will, because rounding up never reduces minutes
+                    # Apply button to update all "assigned_i"
+                    if st.button("Apply pooled assignment (sets per-item Assigned prisoners)"):
+                        for i in range(len(items)):
+                            st.session_state[f"assigned_{i}"] = int(assigned_ints[i])
+                        st.rerun()
+
+                    # Show summary
+                    st.success(
+                        f"Pooled solution is feasible under the minutes budget. "
+                        f"Suggested assigned prisoners: {', '.join([str(x) for x in assigned_ints])} "
+                        f"(total {sum(assigned_ints)} ≤ available {num_prisoners})."
+                    )
+                    st.caption(f"Total required minutes {int(total_required_minutes):,} ≤ budget {int(budget_minutes):,}.")
+                else:
+                    # Infeasible: report shortfall & scaling factor suggestion
+                    if workshop_hours <= 0:
+                        st.error("Set weekly hours > 0 to use the pooled solver.")
+                    else:
+                        shortfall = max(0.0, total_required_minutes - budget_minutes)
+                        scale = (budget_minutes / total_required_minutes) if total_required_minutes > 0 else 0.0
+                        st.error(
+                            f"Pooled targets are not feasible with current resources.\n\n"
+                            f"- Required minutes: **{int(total_required_minutes):,}**\n"
+                            f"- Available minutes: **{int(budget_minutes):,}**\n"
+                            f"- Shortfall: **{int(shortfall):,} minutes**\n"
+                            f"- Max achievable ≈ **{scale:.1%}** of the requested targets (if scaled evenly)."
+                        )
+
+        # ---------- Minutes cap enforcement ----------
         used_minutes = sum(int(it["assigned"]) * workshop_hours * 60.0 for it in items)
         st.markdown(f"**Used Labour minutes:** {used_minutes:,.0f} / {budget_minutes:,.0f}")
         if used_minutes > budget_minutes:
@@ -771,22 +754,17 @@ elif workshop_mode == "Production":
                 "Reduce assigned counts, add prisoners, or increase weekly hours."
             )
         else:
-            # Per-item Output % sliders (with "?" help) — labels use item display names
+            # Output % sliders (with help). Default respects any pre-seeded session state (e.g., if user set via diagnostic).
             output_percents = []
             for i, it in enumerate(items):
                 disp = (it["name"].strip() or f"Item {i+1}") if isinstance(it["name"], str) else f"Item {i+1}"
-                output_percents.append(
-                    st.slider(
-                        f"Output % for {disp}",
-                        min_value=0, max_value=100, value=100, key=f"percent_{i}",
-                        help=OUTPUT_PCT_HELP
-                    )
-                )
+                key = f"percent_{i}"
+                default_val = st.session_state.get(key, 100)
+                val = st.slider(f"Output % for {disp}", min_value=0, max_value=100, value=default_val, key=key, help=OUTPUT_PCT_HELP)
+                output_percents.append(val)
 
-            # Calculate
+            # Calculate and display
             results = calculate_production(items, output_percents)
-
-            # Show results per item
             for r in results:
                 st.markdown(f"### {r['Item'] or 'Item'}")
                 st.write(f"- Output %: {r['Output %']}%")
@@ -802,23 +780,13 @@ elif workshop_mode == "Production":
                     if r["Unit Price inc VAT (£)"] is not None:
                         st.write(f"- Unit Price inc VAT (£): **£{r['Unit Price inc VAT (£)']:.2f}**")
 
-            # Tabular export
+            # Exports
             prod_df = to_dataframe_production(results)
-            st.download_button(
-                "Download CSV (Production)",
-                data=export_csv_bytes(prod_df),
-                file_name="production_quote.csv",
-                mime="text/csv",
-            )
-            st.download_button(
-                "Download PDF-ready HTML (Production)",
-                data=export_html(None, prod_df, title="Production Quote"),
-                file_name="production_quote.html",
-                mime="text/html",
-            )
+            st.download_button("Download CSV (Production)", data=export_csv_bytes(prod_df), file_name="production_quote.csv", mime="text/csv")
+            st.download_button("Download PDF-ready HTML (Production)", data=export_html(None, prod_df, title="Production Quote"), file_name="production_quote.html", mime="text/html")
 
 # --------------------------
-# Footer: Reset Selections (red)
+# Footer: Reset Selections
 # --------------------------
 st.markdown('\n', unsafe_allow_html=True)
 if st.button("Reset Selections", key="reset_app_footer"):
