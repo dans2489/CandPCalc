@@ -1,22 +1,26 @@
-# Cost and Price Calculator — Streamlit app
-# v4.1 (2025-09-23)
-# ---------------------------------------------------------------------
-# Fixes per Dan:
-# 1) Rename ALL user-facing mentions of "Supervisor" to "Instructor" (including possessives),
-#    e.g., inputs, captions, breakdown rows, and table labels.
-# 2) Improve exported HTML (PDF-ready) styling: embed a GOV.UK-like stylesheet so the
-#    quote looks consistent (fonts, headings, tables, spacing, A4 print margins).
-# 3) Keep: buttons GOV.UK green; no title/other colours changed. Ad-hoc sentence plain.
-# 4) Contractual Production & Host logic unchanged (Labour minutes only; minutes budget/cap).
+
+# Cost and Price Calculator — Streamlit app (patched)
+# v4.2 (2025-09-23)
+# - Adds GOV.UK-styled header in exported HTML with combined NFN+HMPPS logo
+# - Action buttons renamed to "Generate Quote and Exit" (Host/Production/Ad-hoc)
+# - Auto-quote numbering PIGG0001+
+
+from __future__ import annotations
 
 from io import BytesIO
 import math
+import os
+import json
+import base64
 from datetime import date
+from typing import Optional
+
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 # ------------------------------
-# Page config (unchanged)
+# Page config
 # ------------------------------
 st.set_page_config(
     page_title="Cost and Price Calculator",
@@ -25,72 +29,37 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# GOV.UK colours for buttons and negatives only
+# GOV.UK colours
 GOV_GREEN = "#00703C"
 GOV_GREEN_DARK = "#005A30"
 GOV_RED = "#D4351C"
-GOV_YELLOW = "#FFDD00"  # focus accent (not overused)
+GOV_YELLOW = "#FFDD00"  # focus accent
 
-# Global CSS — GOV.UK-style font + table chrome; primary buttons green
+# Minimal global CSS for tables/typography (neutral, GOV.UK-like)
 st.markdown(
-    f"""
-<style>
-/* Global font stack approximating GOV.UK (GDS Transport where available) */
-html, body, .stApp, .stMarkdown, .stText, .stDataFrame, .stRadio, .stSelectbox, .stNumberInput, table {{
-  font-family: 'GDS Transport', 'Helvetica Neue', Arial, Helvetica, sans-serif;
-  color: #0b0c0c;
-}}
-
-/* Primary buttons GOV.UK green (including downloads & reset) */
-.stButton > button, .stDownloadButton > button {{
-  background-color: {GOV_GREEN} !important;
-  color: #fff !important;
-  border: 1px solid {GOV_GREEN_DARK} !important;
-}}
-.stButton > button:hover, .stDownloadButton > button:hover {{
-  background-color: {GOV_GREEN_DARK} !important;
-  border-color: {GOV_GREEN_DARK} !important;
-}}
-
-/* Radio/checkbox focus outline in GOV.UK yellow, where possible */
-input[type="radio"]:focus, input[type="checkbox"]:focus {{
-  outline: 3px solid {GOV_YELLOW} !important;
-  outline-offset: 1px;
-}}
-
-/* GOV.UK-style table */
-.govuk-table {{
-  width: 100%;
-  border-collapse: collapse;
-  margin: 0 0 0.75rem 0;
-  font-size: 0.95rem;
-}}
-.govuk-table th, .govuk-table td {{
-  border-bottom: 1px solid #b1b4b6; /* subtle GOV.UK border */
-  padding: 0.5rem 0.6rem;
-  text-align: left;
-  vertical-align: top;
-}}
-.govuk-table th {{
-  background: #f3f2f1;  /* GOV.UK grey header */
-  font-weight: 600;
-  color: #0b0c0c;
-}}
-.govuk-table tr.grand td {{
-  background: #f3f2f1 !important;  /* grand rows look like header (not bold) */
-  font-weight: 400 !important;
-}}
-.govuk-table td.neg {{ color: {GOV_RED}; }}
-</style>
-""",
+    """
+    <style>
+      body, .stApp { font-family: Arial, Helvetica, sans-serif; color:#0b0c0c; }
+      table { width:100%; border-collapse: collapse; }
+      th, td { border-bottom:1px solid #b1b4b6; padding:6px 8px; text-align:left; }
+      th { background:#f3f2f1; font-weight:700; }
+      .neg { color: #d4351c; }
+      tr.grand td { font-weight:700; border-top:2px solid #0b0c0c; }
+      .govuk-inset-text { border-left: 10px solid #b1b4b6; padding: .5rem 1rem; margin: 1rem 0; }
+    </style>
+    """,
     unsafe_allow_html=True,
 )
 
-# Title — left exactly as before (no style overrides here)
-st.markdown('\n\n## Cost and Price Calculator\n\n', unsafe_allow_html=True)
+# Title
+st.markdown('
+
+## Cost and Price Calculator
+
+', unsafe_allow_html=True)
 
 # ------------------------------
-# Constants and reference maps
+# Constants & reference maps
 # ------------------------------
 ELECTRICITY_RATE_DEFAULT = 0.22  # £/kWh
 GAS_RATE_DEFAULT = 0.05          # £/kWh
@@ -104,42 +73,53 @@ EUI_MAP = {
     "High energy process": {"electric_kwh_m2_y": 60, "gas_kwh_m2_y": 100},
 }
 
-# Full Prison → Region mapping (unchanged)
+# Full Prison → Region mapping
 PRISON_TO_REGION = {
-    "Altcourse": "National", "Ashfield": "National", "Askham Grange": "National", "Aylesbury": "National",
-    "Bedford": "National", "Belmarsh": "Inner London", "Berwyn": "National", "Birmingham": "National",
-    "Brinsford": "National", "Bristol": "National", "Brixton": "Inner London", "Bronzefield": "Outer London",
-    "Buckley Hall": "National", "Bullingdon": "National", "Bure": "National", "Cardiff": "National",
-    "Channings Wood": "National", "Chelmsford": "National", "Coldingley": "Outer London", "Cookham Wood": "National",
-    "Dartmoor": "National", "Deerbolt": "National", "Doncaster": "National", "Dovegate": "National",
-    "Downview": "Outer London", "Drake Hall": "National", "Durham": "National", "East Sutton Park": "National",
-    "Eastwood Park": "National", "Elmley": "National", "Erlestoke": "National", "Exeter": "National",
-    "Featherstone": "National", "Feltham A": "Outer London", "Feltham B": "Outer London", "Five Wells": "National",
-    "Ford": "National", "Forest Bank": "National", "Fosse Way": "National", "Foston Hall": "National",
-    "Frankland": "National", "Full Sutton": "National", "Garth": "National", "Gartree": "National",
-    "Grendon": "National", "Guys Marsh": "National", "Hatfield": "National", "Haverigg": "National",
-    "Hewell": "National", "High Down": "Outer London", "Highpoint": "National", "Hindley": "National",
-    "Hollesley Bay": "National", "Holme House": "National", "Hull": "National", "Humber": "National",
-    "Huntercombe": "National", "Isis": "Inner London", "Isle of Wight": "National", "Kirkham": "National",
-    "Kirklevington Grange": "National", "Lancaster Farms": "National", "Leeds": "National", "Leicester": "National",
-    "Lewes": "National", "Leyhill": "National", "Lincoln": "National", "Lindholme": "National", "Littlehey": "National",
-    "Liverpool": "National", "Long Lartin": "National", "Low Newton": "National", "Lowdham Grange": "National",
-    "Maidstone": "National", "Manchester": "National", "Moorland": "National", "Morton Hall": "National",
-    "The Mount": "National", "New Hall": "National", "North Sea Camp": "National", "Northumberland": "National",
-    "Norwich": "National", "Nottingham": "National", "Oakwood": "National", "Onley": "National", "Parc": "National",
-    "Parc (YOI)": "National", "Pentonville": "Inner London", "Peterborough Female": "National",
-    "Peterborough Male": "National", "Portland": "National", "Prescoed": "National", "Preston": "National",
-    "Ranby": "National", "Risley": "National", "Rochester": "National", "Rye Hill": "National",
-    "Send": "National", "Spring Hill": "National", "Stafford": "National", "Standford Hill": "National",
-    "Stocken": "National", "Stoke Heath": "National", "Styal": "National", "Sudbury": "National",
-    "Swaleside": "National", "Swansea": "National", "Swinfen Hall": "National", "Thameside": "Inner London",
-    "Thorn Cross": "National", "Usk": "National", "Verne": "National", "Wakefield": "National",
-    "Wandsworth": "Inner London", "Warren Hill": "National", "Wayland": "National", "Wealstun": "National",
-    "Werrington": "National", "Wetherby": "National", "Whatton": "National", "Whitemoor": "National",
-    "Winchester": "National", "Woodhill": "Inner London", "Wormwood Scrubs": "Inner London", "Wymott": "National",
+    "Altcourse": "National", "Ashfield": "National", "Askham Grange": "National",
+    "Aylesbury": "National", "Bedford": "National", "Belmarsh": "Inner London",
+    "Berwyn": "National", "Birmingham": "National", "Brinsford": "National",
+    "Bristol": "National", "Brixton": "Inner London", "Bronzefield": "Outer London",
+    "Buckley Hall": "National", "Bullingdon": "National", "Bure": "National",
+    "Cardiff": "National", "Channings Wood": "National", "Chelmsford": "National",
+    "Coldingley": "Outer London", "Cookham Wood": "National", "Dartmoor": "National",
+    "Deerbolt": "National", "Doncaster": "National", "Dovegate": "National",
+    "Downview": "Outer London", "Drake Hall": "National", "Durham": "National",
+    "East Sutton Park": "National", "Eastwood Park": "National", "Elmley": "National",
+    "Erlestoke": "National", "Exeter": "National", "Featherstone": "National",
+    "Feltham A": "Outer London", "Feltham B": "Outer London", "Five Wells": "National",
+    "Ford": "National", "Forest Bank": "National", "Fosse Way": "National",
+    "Foston Hall": "National", "Frankland": "National", "Full Sutton": "National",
+    "Garth": "National", "Gartree": "National", "Grendon": "National",
+    "Guys Marsh": "National", "Hatfield": "National", "Haverigg": "National",
+    "Hewell": "National", "High Down": "Outer London", "Highpoint": "National",
+    "Hindley": "National", "Hollesley Bay": "National", "Holme House": "National",
+    "Hull": "National", "Humber": "National", "Huntercombe": "National",
+    "Isis": "Inner London", "Isle of Wight": "National", "Kirkham": "National",
+    "Kirklevington Grange": "National", "Lancaster Farms": "National", "Leeds": "National",
+    "Leicester": "National", "Lewes": "National", "Leyhill": "National",
+    "Lincoln": "National", "Lindholme": "National", "Littlehey": "National",
+    "Liverpool": "National", "Long Lartin": "National", "Low Newton": "National",
+    "Lowdham Grange": "National", "Maidstone": "National", "Manchester": "National",
+    "Moorland": "National", "Morton Hall": "National", "The Mount": "National",
+    "New Hall": "National", "North Sea Camp": "National", "Northumberland": "National",
+    "Norwich": "National", "Nottingham": "National", "Oakwood": "National",
+    "Onley": "National", "Parc": "National", "Parc (YOI)": "National",
+    "Pentonville": "Inner London", "Peterborough Female": "National", "Peterborough Male": "National",
+    "Portland": "National", "Prescoed": "National", "Preston": "National",
+    "Ranby": "National", "Risley": "National", "Rochester": "National",
+    "Rye Hill": "National", "Send": "National", "Spring Hill": "National",
+    "Stafford": "National", "Standford Hill": "National", "Stocken": "National",
+    "Stoke Heath": "National", "Styal": "National", "Sudbury": "National",
+    "Swaleside": "National", "Swansea": "National", "Swinfen Hall": "National",
+    "Thameside": "Inner London", "Thorn Cross": "National", "Usk": "National",
+    "Verne": "National", "Wakefield": "National", "Wandsworth": "Inner London",
+    "Warren Hill": "National", "Wayland": "National", "Wealstun": "National",
+    "Werrington": "National", "Wetherby": "National", "Whatton": "National",
+    "Whitemoor": "National", "Winchester": "National", "Woodhill": "Inner London",
+    "Wormwood Scrubs": "Inner London", "Wymott": "National",
 }
 
-# Instructor Avg Totals by Region & Title (unchanged data source; display uses "Instructor")
+# Instructor Avg Totals by Region & Title
 SUPERVISOR_PAY = {
     "Inner London": [
         {"title": "Production Instructor: Band 3", "avg_total": 49203},
@@ -155,28 +135,23 @@ SUPERVISOR_PAY = {
     ],
 }
 
-# --------------------------------
+# ------------------------------
 # Sidebar — tariffs & fixed costs
-# --------------------------------
+# ------------------------------
 with st.sidebar:
     st.header("Tariffs & Overheads")
-
     electricity_rate = st.number_input(
-        "Electricity tariff (€/£ per kWh)",
-        min_value=0.0, value=ELECTRICITY_RATE_DEFAULT, step=0.01, format="%.2f",
+        "Electricity tariff (€/£ per kWh)", min_value=0.0, value=ELECTRICITY_RATE_DEFAULT, step=0.01, format="%.2f"
     )
     gas_rate = st.number_input(
-        "Gas tariff (€/£ per kWh)",
-        min_value=0.0, value=GAS_RATE_DEFAULT, step=0.01, format="%.2f",
+        "Gas tariff (€/£ per kWh)", min_value=0.0, value=GAS_RATE_DEFAULT, step=0.01, format="%.2f"
     )
     water_rate = st.number_input(
-        "Water tariff (€/£ per m³)",
-        min_value=0.0, value=WATER_RATE_DEFAULT, step=0.10, format="%.2f",
+        "Water tariff (€/£ per m³)", min_value=0.0, value=WATER_RATE_DEFAULT, step=0.10, format="%.2f"
     )
 
     st.markdown("---")
     st.markdown("**Maintenance / Depreciation**")
-
     maint_method = st.radio(
         "Method",
         ["£/m² per year (industry standard)", "Set a fixed monthly amount", "% of reinstatement value"],
@@ -197,9 +172,9 @@ with st.sidebar:
     st.markdown("---")
     admin_monthly = st.number_input("Administration", min_value=0.0, value=150.0, step=25.0)
 
-# --------------------------
+# ------------------------------
 # Base inputs
-# --------------------------
+# ------------------------------
 prisons_sorted = ["Select"] + sorted(PRISON_TO_REGION.keys())
 prison_choice = st.selectbox("Prison Name", prisons_sorted, index=0)
 region = PRISON_TO_REGION.get(prison_choice, "Select") if prison_choice != "Select" else "Select"
@@ -207,6 +182,7 @@ st.text_input("Region", value=("" if region == "Select" else region), disabled=T
 
 customer_type = st.selectbox("I want to quote for", ["Select", "Commercial", "Another Government Department"])
 customer_name = st.text_input("Customer Name")
+
 workshop_mode = st.selectbox("Contract type?", ["Select", "Host", "Production"])
 
 SIZE_LABELS = [
@@ -216,7 +192,11 @@ SIZE_LABELS = [
     "Large (~10,000 ft²)",
     "Enter dimensions in ft",
 ]
-size_map = {"Small (~2,500 ft², ~50×50 ft)": 2500, "Medium (~5,000 ft²)": 5000, "Large (~10,000 ft²)": 10000}
+size_map = {
+    "Small (~2,500 ft², ~50×50 ft)": 2500,
+    "Medium (~5,000 ft²)": 5000,
+    "Large (~10,000 ft²)": 10000,
+}
 workshop_size = st.selectbox("Workshop size (sq ft)?", SIZE_LABELS)
 
 if workshop_size == "Enter dimensions in ft":
@@ -225,6 +205,7 @@ if workshop_size == "Enter dimensions in ft":
     area_ft2 = width * length
 else:
     area_ft2 = size_map.get(workshop_size, 0)
+
 area_m2 = area_ft2 * 0.092903 if area_ft2 else 0.0
 if area_ft2:
     st.markdown(f"Calculated area: **{area_ft2:,.0f} ft²** · **{area_m2:,.0f} m²**")
@@ -232,20 +213,21 @@ if area_ft2:
 workshop_energy_types = list(EUI_MAP.keys())
 workshop_type = st.selectbox("Workshop type?", ["Select"] + workshop_energy_types)
 
-# Hours (kept: affects capacity + instructor allocation)
+# Hours & staffing
 workshop_hours = st.number_input(
     "How many hours per week is the workshop open?",
-    min_value=0.0, format="%.2f",
+    min_value=0.0,
+    format="%.2f",
     help="This value affects production capacity and the recommended % share of instructor time for this contract.",
 )
-
 num_prisoners = st.number_input("How many prisoners employed?", min_value=0, step=1)
 prisoner_salary = st.number_input("Prisoner salary per week (£)", min_value=0.0, format="%.2f")
 
 # Instructors (formerly supervisors)
 num_supervisors = st.number_input("How many instructors?", min_value=0, step=1)
 customer_covers_supervisors = st.checkbox("Customer provides instructor(s)?")
-supervisor_salaries = []
+
+supervisor_salaries: list[float] = []
 if not customer_covers_supervisors:
     titles_for_region = SUPERVISOR_PAY.get(region, [])
     if region == "Select" or not titles_for_region:
@@ -266,7 +248,6 @@ recommended_pct = round((workshop_hours / 37.5) * (1 / contracts) * 100, 1) if c
 st.subheader("Instructor Time Allocation")
 st.info(f"Recommended: {recommended_pct}%")
 chosen_pct = st.slider("Adjust instructor % allocation", 0, 100, int(recommended_pct), key="chosen_pct")
-
 if chosen_pct < int(round(recommended_pct)):
     st.warning("You have selected less than recommended — please explain why here.")
     reason = st.text_area("Reason for using a lower allocation", key="alloc_reason")
@@ -311,33 +292,48 @@ st.caption(
     "If VAT is ticked and customer is Commercial, Unit Price inc VAT = ex VAT × (1 + VAT%)."
 )
 
-# --------------------------
-# Validation (shared)
-# --------------------------
+# ------------------------------
+# Validation
+# ------------------------------
 
 def validate_inputs():
     errors = []
-    if prison_choice == "Select": errors.append("Select prison")
-    if region == "Select": errors.append("Region could not be derived from prison selection")
-    if customer_type == "Select": errors.append("Select customer type")
-    if not str(customer_name).strip(): errors.append("Enter customer name")
-    if workshop_mode == "Select": errors.append("Select contract type")
-    if workshop_size == "Select": errors.append("Select workshop size")
-    if workshop_type == "Select": errors.append("Select workshop type")
-    if area_ft2 <= 0: errors.append("Area must be greater than zero")
-    if workshop_mode == "Production" and workshop_hours <= 0: errors.append("Hours per week must be > 0 (Production)")
-    if num_prisoners < 0: errors.append("Prisoners employed cannot be negative")
-    if prisoner_salary < 0: errors.append("Prisoner salary per week cannot be negative")
+    if prison_choice == "Select":
+        errors.append("Select prison")
+    if region == "Select":
+        errors.append("Region could not be derived from prison selection")
+    if customer_type == "Select":
+        errors.append("Select customer type")
+    if not str(customer_name).strip():
+        errors.append("Enter customer name")
+    if workshop_mode == "Select":
+        errors.append("Select contract type")
+    if workshop_size == "Select":
+        errors.append("Select workshop size")
+    if workshop_type == "Select":
+        errors.append("Select workshop type")
+    if area_ft2 <= 0:
+        errors.append("Area must be greater than zero")
+    if workshop_mode == "Production" and workshop_hours <= 0:
+        errors.append("Hours per week must be > 0 (Production)")
+    if num_prisoners < 0:
+        errors.append("Prisoners employed cannot be negative")
+    if prisoner_salary < 0:
+        errors.append("Prisoner salary per week cannot be negative")
     if not customer_covers_supervisors:
-        if num_supervisors <= 0: errors.append("Enter number of instructors (>0) or tick 'Customer provides instructor(s)'")
-        if region == "Select": errors.append("Select a prison/region to populate instructor titles")
-        if len(supervisor_salaries) != int(num_supervisors): errors.append("Choose a title for each instructor")
-        if any(s <= 0 for s in supervisor_salaries): errors.append("Instructor Avg Total must be > 0")
+        if num_supervisors <= 0:
+            errors.append("Enter number of instructors (>0) or tick 'Customer provides instructor(s)'")
+        if region == "Select":
+            errors.append("Select a prison/region to populate instructor titles")
+        if len(supervisor_salaries) != int(num_supervisors):
+            errors.append("Choose a title for each instructor")
+        if any(s <= 0 for s in supervisor_salaries):
+            errors.append("Instructor Avg Total must be > 0")
     return errors
 
-# --------------------------
-# HTML render helpers (use st.markdown so CSS applies; no iframe)
-# --------------------------
+# ------------------------------
+# HTML helpers and export
+# ------------------------------
 
 def _currency(v) -> str:
     try:
@@ -347,16 +343,22 @@ def _currency(v) -> str:
 
 
 def _html_escape(text: str) -> str:
-    return (str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+    s = str(text) if text is not None else ""
+    return (
+        s.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
 
 
 def _render_table_two_col(rows, amount_header="Amount (£)") -> str:
     """rows: list of tuples (label, value, is_currency, is_grand=False)."""
-    header = f"<tr><th>Item</th><th>{_html_escape(amount_header)}</th></tr>"
-    out = ["<table class='govuk-table'>", header]
+    header = f"<thead><tr><th>Item</th><th>{_html_escape(amount_header)}</th></tr></thead>"
+    out = ["<table>", header, "<tbody>"]
     for label, value, is_currency, *rest in rows:
         is_grand = bool(rest[0]) if rest else False
-        # Format value
         if value is None:
             val_txt = ""
         elif is_currency:
@@ -367,9 +369,11 @@ def _render_table_two_col(rows, amount_header="Amount (£)") -> str:
                 val_txt = f"{int(fval):,}" if fval.is_integer() else f"{fval:,.2f}"
             except Exception:
                 val_txt = _html_escape(value)
-        row_html = f"<tr{' class=\'grand\'' if is_grand else ''}><td>{_html_escape(label)}</td><td>{val_txt}</td></tr>"
-        out.append(row_html)
-    out.append("</table>")
+        tr_cls = " class='grand'" if is_grand else ""
+        out.append(f"<tr{tr_cls}><td>{_html_escape(label)}</td><td>{val_txt}</td></tr>")
+    out.append("</tbody></table>
+
+")
     return "".join(out)
 
 
@@ -387,13 +391,15 @@ def _render_host_df_to_html(host_df: pd.DataFrame) -> str:
             rows_html.append(f"<tr{grand_cls}><td>{_html_escape(item)}</td><td>{_currency(val)}</td></tr>")
         else:
             rows_html.append(f"<tr><td>{_html_escape(item)}</td><td{neg_cls}>{_currency(val)}</td></tr>")
-    header = "<tr><th>Item</th><th>Amount (£)</th></tr>"
-    return f"<table class='govuk-table'>{header}{''.join(rows_html)}</table>"
+    header = "<thead><tr><th>Item</th><th>Amount (£)</th></tr></thead>"
+    return f"<table>{header}<tbody>{''.join(rows_html)}</tbody></table>
+
+"
 
 
 def _render_generic_df_to_html(df: pd.DataFrame) -> str:
     cols = list(df.columns)
-    thead = "<tr>" + "".join([f"<th>{_html_escape(c)}</th>" for c in cols]) + "</tr>"
+    thead = "<thead><tr>" + "".join([f"<th>{_html_escape(c)}</th>" for c in cols]) + "</tr></thead>"
     body_rows = []
     for _, row in df.iterrows():
         tds = []
@@ -403,8 +409,10 @@ def _render_generic_df_to_html(df: pd.DataFrame) -> str:
                 tds.append(f"<td>{_currency(val) if '£' in col else f'{float(val):,.2f}'}</td>")
             else:
                 tds.append(f"<td>{_html_escape(val)}</td>")
-        body_rows.append(f"<tr>{''.join(tds)}</tr>")
-    return f"<table class='govuk-table'>{thead}{''.join(body_rows)}</table>"
+        body_rows.append("<tr>" + "".join(tds) + "</tr>")
+    return f"<table>{thead}<tbody>{''.join(body_rows)}</tbody></table>
+
+"
 
 
 def export_csv_bytes(df: pd.DataFrame) -> BytesIO:
@@ -413,66 +421,159 @@ def export_csv_bytes(df: pd.DataFrame) -> BytesIO:
     b.seek(0)
     return b
 
-# --------------------------
-# Improved HTML export (styled)
-# --------------------------
+# ---------- Quote numbering (PIGG0001+) ----------
+COUNTER_FILE = "quote_counter.json"
+PREFIX = "PIGG"
+PAD = 4  # PIGG0001 ..
 
-def export_html(host_df: pd.DataFrame | None, prod_df: pd.DataFrame | None, title="Quote") -> BytesIO:
-    css = f"""
+def _load_counter() -> int:
+    try:
+        if os.path.exists(COUNTER_FILE):
+            with open(COUNTER_FILE, "r", encoding="utf-8") as f:
+                obj = json.load(f)
+                return int(obj.get("counter", 0))
+    except Exception:
+        pass
+    return int(st.session_state.get("counter_fallback", 0))
+
+def _save_counter(n: int) -> None:
+    try:
+        with open(COUNTER_FILE, "w", encoding="utf-8") as f:
+            json.dump({"counter": n}, f)
+    except Exception:
+        st.session_state["counter_fallback"] = n
+
+def _format_quote(n: int) -> str:
+    return f"{PREFIX}{n:0{PAD}d}"
+
+def preview_quote_no() -> str:
+    return _format_quote(_load_counter() + 1)
+
+def mint_quote_no() -> str:
+    n = _load_counter() + 1
+    _save_counter(n)
+    q = _format_quote(n)
+    st.session_state["last_quote_no"] = q
+    return q
+
+# ---------- Logo helpers (combined NFN+HMPPS) ----------
+
+def _file_to_data_uri(uploaded_file) -> Optional[str]:
+    if not uploaded_file:
+        return None
+    data = uploaded_file.read()
+    mime = "image/svg+xml" if uploaded_file.name.lower().endswith(".svg") else "image/png"
+    b64 = base64.b64encode(data).decode("ascii")
+    return f"data:{mime};base64,{b64}"
+
+def _disk_logo_to_data_uri(path: str) -> Optional[str]:
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+        mime = "image/svg+xml" if path.lower().endswith(".svg") else "image/png"
+        b64 = base64.b64encode(data).decode("ascii")
+        return f"data:{mime};base64,{b64}"
+    except Exception:
+        return None
+
+# Meta controls (date + preview quote + optional logo upload)
+col_meta1, col_meta2 = st.columns([1, 1])
+with col_meta1:
+    quote_date = st.date_input("Quote date", value=st.session_state.get("quote_date") or date.today(), key="quote_date")
+with col_meta2:
+    st.text_input("Quote no. (will mint on generate)", value=preview_quote_no(), disabled=True)
+
+with st.expander("Logo (optional)", expanded=False):
+    st.caption("Upload a combined NFN + HMPPS lock‑up if you want to override the repo file.")
+    combined_logo_uploaded = st.file_uploader("Combined NFN + HMPPS logo (PNG/SVG)", type=["png", "svg"], key="logo_combined")
+
+def _collect_combined_logo_uri() -> Optional[str]:
+    uploaded = st.session_state.get("logo_combined")
+    c = _file_to_data_uri(uploaded) if uploaded else None
+    if not c:
+        c = _disk_logo_to_data_uri("assets/logos/NFN-new-logo.png")
+    return c
+
+# ---------- Improved HTML export with header ----------
+
+def export_html(host_df: Optional[pd.DataFrame],
+                prod_df: Optional[pd.DataFrame],
+                title: str = "Production Contract Quotation",
+                prison_name: str = "",
+                customer_name: str = "",
+                region: str = "",
+                quote_date: Optional[date] = None,
+                quote_no: str = "",
+                combined_logo_uri: Optional[str] = None) -> BytesIO:
+    css = """
     <style>
-      @page {{ size: A4; margin: 16mm; }}
-      body {{
-        font-family: 'GDS Transport', 'Helvetica Neue', Arial, Helvetica, sans-serif;
-        color: #0b0c0c; font-size: 16px; line-height: 1.4; margin: 0;
-      }}
-      h1 {{ font-size: 28px; margin: 0 0 8px; }}
-      h2 {{ font-size: 22px; margin: 18px 0 8px; }}
-      h3 {{ font-size: 18px; margin: 14px 0 6px; }}
-      .meta {{
-        border: 1px solid #b1b4b6; background:#f3f2f1; padding: 10px 12px; margin: 8px 0 16px; border-radius: 2px;
-      }}
-      .meta strong {{ display:inline-block; min-width: 100px; }}
-      .section {{ margin: 16px 0 24px; }}
-      .govuk-table {{ width: 100%; border-collapse: collapse; margin: 8px 0 0; font-size: 15px; }}
-      .govuk-table th, .govuk-table td {{ border-bottom: 1px solid #b1b4b6; padding: 6px 8px; text-align: left; vertical-align: top; }}
-      .govuk-table th {{ background: #f3f2f1; font-weight: 600; }}
-      .govuk-table tr.grand td {{ background:#f3f2f1!important; font-weight: 400!important; }}
-      .govuk-table td.neg {{ color: {GOV_RED}; }}
-      .footer-note {{ color:#505a5f; font-size: 12px; margin-top: 24px; }}
+      @page { size: A4; margin: 20mm; }
+      body { font-family: Arial, Helvetica, sans-serif; color:#0b0c0c; line-height:1.45; }
+      h1, h2, h3 { font-weight:700; margin: 0 0 .5rem 0; }
+      h1 { font-size: 26px; }
+      h2 { font-size: 20px; margin-top: 1.25rem; }
+      .govuk-inset-text { border-left: 10px solid #b1b4b6; padding: .5rem 1rem; margin: 1rem 0; }
+      .logos { display:flex; align-items:center; gap:12px; margin-bottom:8px; }
+      .logos img { height:48px; width:auto; }
+      .summary-list { width:100%; border-collapse:collapse; margin:.5rem 0 0 0; }
+      .summary-list th, .summary-list td { text-align:left; padding:6px 8px; vertical-align:top; }
+      .summary-list th { width: 160px; color:#505a5f; font-weight: normal; }
+      table { width:100%; border-collapse: collapse; margin-top:.5rem; }
+      th, td { border-bottom:1px solid #b1b4b6; padding:6px 8px; }
+      th { background:#f3f2f1; font-weight:700; }
+      .neg { color: #d4351c; }
+      tr.grand td { font-weight:700; border-top:2px solid #0b0c0c; }
+      .small-muted { color:#505a5f; font-size: 13px; }
     </style>
     """
-    meta = (
-        f"<div class='meta'>"
-        f"<p><strong>Customer:</strong> { _html_escape(customer_name or '') }&nbsp;&nbsp;"
-        f"<strong>Prison:</strong> { _html_escape(prison_choice or '') }&nbsp;&nbsp;"
-        f"<strong>Region:</strong> { _html_escape(region or '') }</p>"
-        f"</div>"
-    )
-    parts = [
-        "<!doctype html><html><head><meta charset='utf-8'>",
-        css,
-        f"<title>{_html_escape(title)}</title></head><body>",
-        f"<h1>{_html_escape(title)}</h1>",
-        "<h2>Cost and Price Calculator — Quote</h2>",
-        meta,
-    ]
-    if host_df is not None:
-        parts.append("<div class='section'>")
-        parts.append("<h3>Host Costs</h3>")
-        parts.append(_render_host_df_to_html(host_df))
-        parts.append("</div>")
-    if prod_df is not None:
-        parts.append("<div class='section'>")
-        parts.append("<h3>Production Items</h3>")
-        parts.append(_render_generic_df_to_html(prod_df))
-        parts.append("</div>")
-    parts.append("<div class='footer-note'>Prices are indicative and may be subject to change based on final scope and site conditions.</div>")
-    parts.append("</body></html>")
-    b = BytesIO("".join(parts).encode("utf-8")); b.seek(0); return b
 
-# --------------------------
-# Host costs (monthly)
-# --------------------------
+    logos_html = (
+        f'<div class="logos"><img src="{combined_logo_uri}" alt="New Futures Network and HM Prison & Probation Service"></div>'
+        if combined_logo_uri else
+        '<div class="logos"><span class="small-muted">New Futures Network / HM Prison & Probation Service</span></div>'
+    )
+    qdate_txt = (quote_date.isoformat() if isinstance(quote_date, date) else (quote_date or ""))
+
+    header_html = f"""
+    <header>
+      {logos_html}
+      <h1>{_html_escape(title)}</h1>
+      <table class="summary-list">
+        <tr><th>Prison name</th><td>{_html_escape(prison_name)}</td></tr>
+        <tr><th>Customer name</th><td>{_html_escape(customer_name)}</td></tr>
+        <tr><th>Date</th><td>{_html_escape(qdate_txt)}</td></tr>
+        <tr><th>Quote no.</th><td>{_html_escape(quote_no)}</td></tr>
+      </table>
+      <div class="govuk-inset-text">
+        We are pleased to set out below the terms of our Quotation for the Goods and/or Services you are currently seeking.
+        We confirm that this Quotation and any subsequent contract entered into as a result is, and will be, subject exclusively
+        to our Standard Conditions of Sale of Goods and/or Services a copy of which is available on request. Please note that all
+        prices are exclusive of VAT and carriage costs at time of order of which the customer shall be additionally liable to pay.
+      </div>
+    </header>
+    """
+
+    parts = [
+        "<!doctype html><html><head><meta charset='utf-8'><title>Quote</title>",
+        css,
+        "</head><body>",
+        header_html,
+    ]
+
+    if host_df is not None:
+        parts += ["<h2>Host Costs</h2>", _render_host_df_to_html(host_df)]
+    if prod_df is not None:
+        parts += ["<h2>Production Items</h2>", _render_generic_df_to_html(prod_df)]
+
+    parts += [
+        "<p class='small-muted'>Prices are indicative and may be subject to change based on final scope and site conditions.</p>",
+        "</body></html>",
+    ]
+
+    b = BytesIO("".join(parts).encode("utf-8")); b.seek(0)
+    return b
+
+# ---------- Costs & calculations ----------
 
 def monthly_energy_costs():
     eui = EUI_MAP.get(workshop_type, None)
@@ -511,9 +612,6 @@ def weekly_overheads_total():
         "Depreciation/Maintenance (estimated)": maint_m,
     }
 
-# --------------------------
-# Production helpers & model (Contractual)
-# --------------------------
 
 def labour_minutes_budget(num_pris: int, hours: float) -> float:
     return max(0.0, num_pris * hours * 60.0)
@@ -539,15 +637,12 @@ def calculate_production_contractual(items, output_percents):
         prisoners_required = int(item.get("required", 1))
         prisoners_assigned = int(item.get("assigned", 0))
         output_pct = int(output_percents[idx]) if idx < len(output_percents) else 100
-
         cap_100 = item_capacity_100(prisoners_assigned, mins_per_unit, prisoners_required, workshop_hours)
         share = ((prisoners_assigned * workshop_hours * 60.0) / denom) if denom > 0 else 0.0
-
         prisoner_weekly_item = prisoners_assigned * prisoner_salary
         inst_weekly_item = sup_weekly_total * share
         overheads_weekly_item = overheads_weekly * share
         weekly_cost_item = prisoner_weekly_item + inst_weekly_item + overheads_weekly_item
-
         actual_units = cap_100 * (output_pct / 100.0)
         unit_cost_base = (weekly_cost_item / actual_units) if actual_units > 0 else None
         unit_price_ex_vat = unit_cost_base
@@ -556,7 +651,6 @@ def calculate_production_contractual(items, output_percents):
             unit_price_inc_vat = unit_price_ex_vat * (1 + (vat_rate / 100.0))
         elif unit_price_ex_vat is not None:
             unit_price_inc_vat = unit_price_ex_vat
-
         results.append({
             "Item": name,
             "Output %": output_pct,
@@ -574,20 +668,37 @@ def calculate_production_contractual(items, output_percents):
         })
     return results
 
-# --------------------------
+# ---------- One-click auto-download & exit ----------
+
+def auto_download_and_exit(filename: str, html_bytes: BytesIO):
+    b64 = base64.b64encode(html_bytes.getvalue()).decode("ascii")
+    components.html(
+        f"""
+        <a id='dl' style='display:none' download='{_html_escape(filename)}' href='data:text/html;base64,{b64}'>download</a>
+        <script>
+          const a = document.getElementById('dl');
+          a.click();
+          setTimeout(() => {{ window.close(); }}, 1200);
+        </script>
+        """,
+        height=0, width=0
+    )
+
+# ------------------------------
 # Main UI branches
-# --------------------------
+# ------------------------------
 errors = validate_inputs()
 
 # HOST branch
 if workshop_mode == "Host":
     if st.button("Generate Costs"):
         if errors:
-            st.error("Fix errors:\n- " + "\n- ".join(errors))
+            st.error("Fix errors:
+- " + "
+- ".join(errors))
         else:
             heading_name = customer_name if str(customer_name).strip() else "Customer"
             st.subheader(f"Host Contract for {heading_name} (costs are per month)")
-
             # Build host breakdown (monthly)
             breakdown = {}
             breakdown["Prisoner wages"] = num_prisoners * prisoner_salary * (52 / 12)
@@ -614,6 +725,7 @@ if workshop_mode == "Host":
                 + breakdown.get("Administration", 0.0)
                 + breakdown.get("Depreciation/Maintenance (estimated)", 0.0)
             )
+
             dev_baseline_rate = 0.20
             dev_baseline_amount = overheads_subtotal * dev_baseline_rate
             if customer_type == "Commercial":
@@ -633,31 +745,45 @@ if workshop_mode == "Host":
 
             rows = list(breakdown.items()) + [
                 ("Subtotal", subtotal),
-                (f"VAT ({vat_rate:.1f}%)", vat_amount) if (customer_type == "Commercial" and apply_vat) else ("VAT (0.0%)", 0.0),
+                ((f"VAT ({vat_rate:.1f}%)"), vat_amount) if (customer_type == "Commercial" and apply_vat) else ("VAT (0.0%)", 0.0),
                 ("Grand Total (£/month)", grand_total),
             ]
             host_df = pd.DataFrame(rows, columns=["Item", "Amount (£)"])
+
             st.markdown(_render_host_df_to_html(host_df), unsafe_allow_html=True)
 
             # Downloads
             st.download_button("Download CSV (Host)", data=export_csv_bytes(host_df), file_name="host_quote.csv", mime="text/csv")
-            st.download_button("Download PDF-ready HTML (Host)", data=export_html(host_df, None, title="Host Quote"), file_name="host_quote.html", mime="text/html")
+
+            # New: Generate Quote and Exit (Host)
+            if st.button("Generate Quote and Exit", key="gen_host"):
+                qn = mint_quote_no()
+                html_bytes = export_html(
+                    host_df, None,
+                    title="Production Contract Quotation",
+                    prison_name=prison_choice,
+                    customer_name=customer_name,
+                    region=region,
+                    quote_date=st.session_state.get("quote_date"),
+                    quote_no=qn,
+                    combined_logo_uri=_collect_combined_logo_uri(),
+                )
+                auto_download_and_exit(f"{qn}_host_quote.html", html_bytes)
+                st.success(f"Quote {qn} generated. Your download should start automatically. If this tab doesn’t close, you can close it now.")
 
 # PRODUCTION branch
 elif workshop_mode == "Production":
     st.subheader("Production Settings")
-
     prod_type = st.radio(
         "Do you want ad-hoc costs with a deadline, or contractual work?",
         ["Contractual work", "Ad-hoc costs (single item) with a deadline"],
         index=0,
-        help="Contractual work = ongoing weekly production. Ad-hoc = a one-off job with a delivery deadline."
+        help="Contractual work = ongoing weekly production. Ad-hoc = a one-off job with a delivery deadline.",
     )
 
     # A) CONTRACTUAL WORK (as normal)
     if prod_type == "Contractual work":
         st.caption("Apportionment method: Labour minutes — overheads & instructor time are shared by assigned labour minutes (assigned prisoners × weekly hours × 60).")
-
         budget_minutes = labour_minutes_budget(num_prisoners, workshop_hours)
         st.markdown(f"As per your selected resources you have **{budget_minutes:,.0f} Labour minutes** available this week.")
 
@@ -667,26 +793,21 @@ elif workshop_mode == "Production":
             "How much of the item’s theoretical weekly capacity you plan to use this week. "
             "100% assumes assigned prisoners and weekly hours are fully available; reduce to account for ramp‑up, changeovers, downtime, etc."
         )
-
         for i in range(int(num_items)):
             with st.expander(f"Item {i+1} details", expanded=(i == 0)):
                 name = st.text_input(f"Item {i+1} Name", key=f"name_{i}")
-                display_name = (name.strip() or f"Item {i+1}")
+                display_name = (name.strip() or f"Item {i+1}") if isinstance(name, str) else f"Item {i+1}"
                 prisoners_required = st.number_input(
-                    f"Prisoners required to make 1 item ({display_name})",
-                    min_value=1, value=1, step=1, key=f"req_{i}"
+                    f"Prisoners required to make 1 item ({display_name})", min_value=1, value=1, step=1, key=f"req_{i}"
                 )
                 minutes_per_item = st.number_input(
-                    f"How many minutes to make 1 item ({display_name})",
-                    min_value=1.0, value=10.0, format="%.2f", key=f"mins_{i}"
+                    f"How many minutes to make 1 item ({display_name})", min_value=1.0, value=10.0, format="%.2f", key=f"mins_{i}"
                 )
                 prisoners_assigned = st.number_input(
-                    f"How many prisoners work solely on this item ({display_name})",
-                    min_value=0, max_value=int(num_prisoners), value=0, step=1, key=f"assigned_{i}"
+                    f"How many prisoners work solely on this item ({display_name})", min_value=0, max_value=int(num_prisoners), value=0, step=1, key=f"assigned_{i}"
                 )
                 cap_preview = item_capacity_100(prisoners_assigned, minutes_per_item, prisoners_required, workshop_hours)
                 st.markdown(f"{display_name} capacity @ 100%: **{cap_preview:.0f} units/week**")
-
                 items.append({
                     "name": name,
                     "required": int(prisoners_required),
@@ -695,7 +816,9 @@ elif workshop_mode == "Production":
                 })
 
         if errors:
-            st.error("Fix errors before production calculations:\n- " + "\n- ".join(errors))
+            st.error("Fix errors before production calculations:
+- " + "
+- ".join(errors))
         else:
             used_minutes = sum(int(it["assigned"]) * workshop_hours * 60.0 for it in items)
             st.markdown(f"**Used Labour minutes:** {used_minutes:,.0f} / {budget_minutes:,.0f}")
@@ -709,30 +832,38 @@ elif workshop_mode == "Production":
                 for i, it in enumerate(items):
                     disp = (it["name"].strip() or f"Item {i+1}") if isinstance(it["name"], str) else f"Item {i+1}"
                     output_percents.append(
-                        st.slider(
-                            f"Output % for {disp}",
-                            min_value=0, max_value=100, value=100, key=f"percent_{i}",
-                            help=OUTPUT_PCT_HELP
-                        )
+                        st.slider(f"Output % for {disp}", min_value=0, max_value=100, value=100, key=f"percent_{i}", help=OUTPUT_PCT_HELP)
                     )
-
                 results = calculate_production_contractual(items, output_percents)
 
-                # Export table
-                prod_df = pd.DataFrame(
-                    [{k: (None if r[k] is None else (round(float(r[k]), 2) if isinstance(r[k], (int, float)) else r[k]))
-                      for k in ["Item", "Output %", "Units/week", "Unit Cost (£)", "Unit Price ex VAT (£)", "Unit Price inc VAT (£)"]}
-                     for r in results]
-                )
-                st.markdown(_render_generic_df_to_html(prod_df), unsafe_allow_html=True)
+                prod_df = pd.DataFrame([
+                    {k: (None if r[k] is None else (round(float(r[k]), 2) if isinstance(r[k], (int, float)) else r[k]))
+                     for k in ["Item", "Output %", "Units/week", "Unit Cost (£)", "Unit Price ex VAT (£)", "Unit Price inc VAT (£)"]}
+                    for r in results
+                ])
 
+                st.markdown(_render_generic_df_to_html(prod_df), unsafe_allow_html=True)
                 st.download_button("Download CSV (Production)", data=export_csv_bytes(prod_df), file_name="production_quote.csv", mime="text/csv")
-                st.download_button("Download PDF-ready HTML (Production)", data=export_html(None, prod_df, title="Production Quote"), file_name="production_quote.html", mime="text/html")
+
+                # New: Generate Quote and Exit (Production)
+                if st.button("Generate Quote and Exit", key="gen_prod"):
+                    qn = mint_quote_no()
+                    html_bytes = export_html(
+                        None, prod_df,
+                        title="Production Contract Quotation",
+                        prison_name=prison_choice,
+                        customer_name=customer_name,
+                        region=region,
+                        quote_date=st.session_state.get("quote_date"),
+                        quote_no=qn,
+                        combined_logo_uri=_collect_combined_logo_uri(),
+                    )
+                    auto_download_and_exit(f"{qn}_production_quote.html", html_bytes)
+                    st.success(f"Quote {qn} generated. Your download should start automatically. If this tab doesn’t close, you can close it now.")
 
     # B) AD-HOC COSTS (single item) with deadline
     else:
         st.caption("Provide item details and a delivery deadline. The calculator shows if extra prisoners are needed and the total job price (with unit price).")
-
         adhoc_name = st.text_input("Item Name (ad‑hoc)")
         minutes_per_item = st.number_input("Minutes to make 1 item", min_value=1.0, value=10.0, format="%.2f")
         prisoners_required_per_item = st.number_input("Prisoners required to make 1 item", min_value=1, value=1, step=1)
@@ -741,18 +872,26 @@ elif workshop_mode == "Production":
 
         if st.button("Calculate Ad‑hoc Cost"):
             local_errors = list(errors)
-            display_name = (adhoc_name.strip() or "Item")
-            if minutes_per_item <= 0: local_errors.append("Minutes per item must be > 0")
-            if prisoners_required_per_item <= 0: local_errors.append("Prisoners required per item must be > 0")
-            if units_needed <= 0: local_errors.append("Units needed must be > 0")
+            display_name = (adhoc_name.strip() or "Item") if isinstance(adhoc_name, str) else "Item"
+            if minutes_per_item <= 0:
+                local_errors.append("Minutes per item must be > 0")
+            if prisoners_required_per_item <= 0:
+                local_errors.append("Prisoners required per item must be > 0")
+            if units_needed <= 0:
+                local_errors.append("Units needed must be > 0")
             days_to_deadline = (deadline - date.today()).days
             weeks_to_deadline = max(1, math.ceil(days_to_deadline / 7)) if days_to_deadline is not None else 1
-            if workshop_hours <= 0: local_errors.append("Hours per week must be > 0 for Ad‑hoc")
-            if num_prisoners < 0: local_errors.append("Prisoners employed cannot be negative")
-            if prisoner_salary < 0: local_errors.append("Prisoner weekly salary cannot be negative")
+            if workshop_hours <= 0:
+                local_errors.append("Hours per week must be > 0 for Ad‑hoc")
+            if num_prisoners < 0:
+                local_errors.append("Prisoners employed cannot be negative")
+            if prisoner_salary < 0:
+                local_errors.append("Prisoner weekly salary cannot be negative")
 
             if local_errors:
-                st.error("Fix errors:\n- " + "\n- ".join(local_errors))
+                st.error("Fix errors:
+- " + "
+- ".join(local_errors))
             else:
                 required_minutes_total = units_needed * minutes_per_item * prisoners_required_per_item
                 available_minutes_total_current = num_prisoners * workshop_hours * 60.0 * weeks_to_deadline
@@ -760,7 +899,6 @@ elif workshop_mode == "Production":
                 denom = workshop_hours * 60.0 * weeks_to_deadline
                 additional_prisoners = int(math.ceil(deficit_minutes / denom)) if denom > 0 else 0
                 additional_prisoners = max(0, additional_prisoners)
-
                 assigned_total = num_prisoners + additional_prisoners
 
                 overheads_weekly, _detail = weekly_overheads_total()
@@ -770,11 +908,9 @@ elif workshop_mode == "Production":
                 )
                 prisoners_weekly_cost = assigned_total * prisoner_salary
                 weekly_cost_total = prisoners_weekly_cost + inst_weekly_total + overheads_weekly
-
                 job_cost_ex_vat = weekly_cost_total * weeks_to_deadline
                 vat_amount = (job_cost_ex_vat * (vat_rate / 100.0)) if (customer_type == "Commercial" and apply_vat) else 0.0
                 job_cost_inc_vat = job_cost_ex_vat + vat_amount
-
                 unit_price_ex_vat = (job_cost_ex_vat / units_needed) if units_needed > 0 else None
                 unit_price_inc_vat = (job_cost_inc_vat / units_needed) if (units_needed > 0 and (customer_type == "Commercial" and apply_vat)) else None
 
@@ -784,7 +920,7 @@ elif workshop_mode == "Production":
                 else:
                     st.write(f"To produce {units_needed:,} by {deadline.isoformat()} your current staffing is sufficient (no additional prisoners required).")
 
-                # Build two-column rows
+                # Build two‑column rows
                 adhoc_rows = [
                     ("Weeks to deadline", weeks_to_deadline, False, False),
                     ("Weekly: Prisoners", prisoners_weekly_cost, True, False),
@@ -799,22 +935,39 @@ elif workshop_mode == "Production":
                     adhoc_rows.append(("Unit Price inc VAT", unit_price_inc_vat, True, False))
                 else:
                     adhoc_rows.append(("Total Job Cost", job_cost_ex_vat, True, True))
-                adhoc_rows.append(("Unit Price ex VAT", unit_price_ex_vat, True, False))
+                    adhoc_rows.append(("Unit Price ex VAT", unit_price_ex_vat, True, False))
 
-                # Render in-page (inherits CSS/font)
+                # Render
                 st.markdown(_render_table_two_col(adhoc_rows), unsafe_allow_html=True)
 
-                # Exports (two-column DataFrame for CSV/HTML)
+                # Exports (two‑column DataFrame for CSV/HTML)
                 export_rows = [(lbl, val) for (lbl, val, *_rest) in adhoc_rows]
                 adhoc_export_df = pd.DataFrame(export_rows, columns=["Item", "Amount (£)"])
 
                 st.download_button("Download CSV (Ad‑hoc)", data=export_csv_bytes(adhoc_export_df), file_name="adhoc_quote.csv", mime="text/csv")
-                st.download_button("Download PDF-ready HTML (Ad‑hoc)", data=export_html(None, adhoc_export_df, title=f"Ad-hoc Quote — {display_name}"), file_name="adhoc_quote.html", mime="text/html")
 
-# --------------------------
+                # New: Generate Quote and Exit (Ad-hoc)
+                if st.button("Generate Quote and Exit", key="gen_adhoc"):
+                    qn = mint_quote_no()
+                    html_bytes = export_html(
+                        None, adhoc_export_df,
+                        title="Production Contract Quotation",
+                        prison_name=prison_choice,
+                        customer_name=customer_name,
+                        region=region,
+                        quote_date=st.session_state.get("quote_date"),
+                        quote_no=qn,
+                        combined_logo_uri=_collect_combined_logo_uri(),
+                    )
+                    safe_name = (adhoc_name.strip() or "item").lower().replace(" ", "_") if isinstance(adhoc_name, str) else "item"
+                    auto_download_and_exit(f"{qn}_adhoc_quote_{safe_name}.html", html_bytes)
+                    st.success(f"Quote {qn} generated. Your download should start automatically. If this tab doesn’t close, you can close it now.")
+
+# ------------------------------
 # Footer: Reset Selections (green per request)
-# --------------------------
-st.markdown('\n', unsafe_allow_html=True)
+# ------------------------------
+st.markdown('
+', unsafe_allow_html=True)
 if st.button("Reset Selections", key="reset_app_footer"):
     for k in list(st.session_state.keys()):
         del st.session_state[k]
@@ -822,4 +975,6 @@ if st.button("Reset Selections", key="reset_app_footer"):
         st.rerun()
     except Exception:
         st.experimental_rerun()
-st.markdown('\n', unsafe_allow_html=True)
+st.markdown('
+', unsafe_allow_html=True)
+
