@@ -1,17 +1,14 @@
 # Cost and Price Calculator — Streamlit app
-# v3.8 (2025-09-23)
+# v3.9 (2025-09-23)
 # ---------------------------------------------------------------------
 # Surgical changes per Dan:
 # - Ad-hoc (single item with deadline): plain sentence (no banner), same look;
 #   includes Unit Price ex VAT and (if applicable) Unit Price inc VAT.
+# - Ad-hoc table now uses a dedicated two-column HTML renderer matching app style
+#   (no third column, no NaNs, correct fonts via existing CSS).
 # - Buttons (all): GOV.UK green; no other colours/formatting changed anywhere.
 # - Contractual Production: Labour minutes only + minutes budget/cap (unchanged logic).
 # - Host: unchanged.
-# - Dynamic Production labels use item name for Output % and capacity lines (fallback "Item N").
-# - Output % slider has a help tooltip.
-# - Removed any "plain English" expander; hours label clarifies dual impact.
-#
-# NOTE: Title/heading colours are not set here; they inherit from your theme (unchanged).
 
 from io import BytesIO
 import math
@@ -246,7 +243,7 @@ if not customer_covers_supervisors:
             options = [t["title"] for t in titles_for_region]
             sel = st.selectbox(f"Instructor {i+1} title", options, key=f"inst_title_{i}")
             pay = next(t["avg_total"] for t in titles_for_region if t["title"] == sel)
-            st.caption(f"Avg Total for {region}: £{pay:,.0f} per year")
+            st.caption(f"Avg Total for {region}: **£{pay:,.0f}** per year")
             supervisor_salaries.append(float(pay))
 
 # Contracts & recommended allocation
@@ -318,7 +315,7 @@ def validate_inputs():
     if area_ft2 <= 0: errors.append("Area must be greater than zero")
     if workshop_mode == "Production" and workshop_hours <= 0: errors.append("Hours per week must be > 0 (Production)")
     if num_prisoners < 0: errors.append("Prisoners employed cannot be negative")
-    if prisoner_salary < 0: errors.append("Prisoner salary per week cannot be negative")
+    if prisoner_salary < 0: errors.append("Prisoner weekly salary cannot be negative")
     if not customer_covers_supervisors:
         if num_supervisors <= 0: errors.append("Enter number of supervisors (>0) or tick 'Customer provides supervisor(s)'")
         if region == "Select": errors.append("Select a prison/region to populate instructor titles")
@@ -334,7 +331,7 @@ def _currency(v) -> str:
     try:
         return f"£{float(v):,.2f}"
     except Exception:
-        return str(v)
+        return ""
 
 
 def monthly_energy_costs():
@@ -421,6 +418,36 @@ def _render_generic_df_to_html(df: pd.DataFrame) -> str:
         body_rows.append(f"<tr>{''.join(tds)}</tr>")
     thead = "<tr>" + "".join([f"<th>{_html_escape(c)}</th>" for c in cols]) + "</tr>"
     return f"<table>{thead}{''.join(body_rows)}</table>"
+
+# NEW: two-column renderer for ad-hoc (no NaNs, same styling)
+
+def _render_two_col(rows, amount_header="Amount (£)") -> str:
+    """rows: list of tuples (label, value, is_currency, is_grand=False)."""
+    header = f"<tr><th>Item</th><th>{_html_escape(amount_header)}</th></tr>"
+    out = ["<table>", header]
+    for label, value, is_currency, *rest in rows:
+        is_grand = False
+        if rest:
+            is_grand = bool(rest[0])
+        # Format value
+        if value is None:
+            val_txt = ""
+        elif is_currency:
+            val_txt = _currency(value)
+        else:
+            # non-currency: show int without dp if whole number, else 2dp
+            try:
+                fval = float(value)
+                if fval.is_integer():
+                    val_txt = f"{int(fval):,}"
+                else:
+                    val_txt = f"{fval:,.2f}"
+            except Exception:
+                val_txt = _html_escape(value)
+        row_html = f"<tr{' class=\'grand\'' if is_grand else ''}><td>{_html_escape(label)}</td><td>{val_txt}</td></tr>"
+        out.append(row_html)
+    out.append("</table>")
+    return "".join(out)
 
 
 def export_html(host_df: pd.DataFrame | None, prod_df: pd.DataFrame | None, title="Quote") -> BytesIO:
@@ -725,10 +752,10 @@ elif workshop_mode == "Production":
 
                 assigned_total = num_prisoners + additional_prisoners
 
-                # Weekly context (not shown as headline to keep sentence plain)
+                # Weekly context (diagnostic only)
                 weekly_units_required = math.ceil(units_needed / weeks_to_deadline)
                 cap_per_week_100 = item_capacity_100(assigned_total, minutes_per_item, prisoners_required_per_item, workshop_hours)
-                _ = int(round(min(100.0, (weekly_units_required / cap_per_week_100) * 100.0))) if cap_per_week_100 > 0 else 0  # diagnostic only
+                _ = int(round(min(100.0, (weekly_units_required / cap_per_week_100) * 100.0))) if cap_per_week_100 > 0 else 0
 
                 # Weekly cost components (assign 100% of supervisors & overheads to this job)
                 overheads_weekly, _detail = weekly_overheads_total()
@@ -754,38 +781,40 @@ elif workshop_mode == "Production":
                 else:
                     st.write(f"To produce {units_needed:,} by {deadline.isoformat()} your current staffing is sufficient (no additional prisoners required).")
 
-                # Consistent table (same look) — include unit prices
-                rows = [
-                    ("Weeks to deadline", weeks_to_deadline),
-                    ("Weekly: Prisoners (£)", prisoners_weekly_cost),
-                    ("Weekly: Supervisors (100%) (£)", sup_weekly_total),
-                    ("Weekly: Overheads (100%) (£)", overheads_weekly),
-                    ("Weekly Total (£)", weekly_cost_total),
-                    ("Job Cost (ex VAT) (£)", job_cost_ex_vat),
+                # Build rows for two-column renderer (no NaNs)
+                adhoc_rows = [
+                    ("Weeks to deadline", weeks_to_deadline, False, False),
+                    ("Weekly: Prisoners", prisoners_weekly_cost, True, False),
+                    ("Weekly: Supervisors (100%)", sup_weekly_total, True, False),
+                    ("Weekly: Overheads (100%)", overheads_weekly, True, False),
+                    ("Weekly Total", weekly_cost_total, True, False),
+                    ("Job Cost (ex VAT)", job_cost_ex_vat, True, False),
                 ]
                 if customer_type == "Commercial" and apply_vat:
-                    rows.append((f"VAT ({vat_rate:.1f}%) (£)", vat_amount))
-                    rows.append(("Total Job Cost (inc VAT) (£)", job_cost_inc_vat))
-                    rows.append(("Unit Price inc VAT (£)", unit_price_inc_vat))
-                rows.append(("Unit Price ex VAT (£)", unit_price_ex_vat))
+                    adhoc_rows.append((f"VAT ({vat_rate:.1f}%)", vat_amount, True, False))
+                    adhoc_rows.append(("Total Job Cost (inc VAT)", job_cost_inc_vat, True, True))
+                    adhoc_rows.append(("Unit Price inc VAT", unit_price_inc_vat, True, False))
+                else:
+                    adhoc_rows.append(("Total Job Cost", job_cost_ex_vat, True, True))
+                adhoc_rows.append(("Unit Price ex VAT", unit_price_ex_vat, True, False))
 
-                # Build DF with a currency column so renderer prints £ 2dp
-                df_rows = []
-                for k, v in rows:
-                    if "(£)" in k:
-                        df_rows.append([k.replace(" (£)", ""), v, None])
-                    elif "VAT (" in k and ") (£)" in k:
-                        df_rows.append([k.replace(") (£)", ")"), v, None])
-                    else:
-                        df_rows.append([k, None, v])
-                adhoc_df = pd.DataFrame(df_rows, columns=["Item", "Amount (£)", "Amount"])
+                # Render table with same styling
+                st.components.v1.html(_render_two_col(adhoc_rows), height=140 + int(len(adhoc_rows) * 40), scrolling=False)
 
-                # Render on screen with the same table chrome
-                st.components.v1.html(_render_generic_df_to_html(adhoc_df), height=120 + int(len(adhoc_df) * 40), scrolling=False)
+                # Exports (two-column DataFrame for CSV/HTML)
+                export_rows = []
+                for (lbl, val, is_curr, is_grand) in adhoc_rows:
+                    export_rows.append((lbl, val))
+                adhoc_export_df = pd.DataFrame(export_rows, columns=["Item", "Amount (£)"])
 
-                # Downloads
-                st.download_button("Download CSV (Ad‑hoc)", data=export_csv_bytes(adhoc_df), file_name="adhoc_quote.csv", mime="text/csv")
-                st.download_button("Download PDF-ready HTML (Ad‑hoc)", data=export_html(None, adhoc_df.rename(columns={"Amount": "Amount (other)"}), title=f"Ad-hoc Quote — {display_name}"), file_name="adhoc_quote.html", mime="text/html")
+                st.download_button("Download CSV (Ad‑hoc)", data=export_csv_bytes(adhoc_export_df), file_name="adhoc_quote.csv", mime="text/csv")
+                # Reuse export_html generic section for layout; pass as 'prod_df'
+                st.download_button(
+                    "Download PDF-ready HTML (Ad‑hoc)",
+                    data=export_html(None, adhoc_export_df, title=f"Ad-hoc Quote — {display_name}"),
+                    file_name="adhoc_quote.html",
+                    mime="text/html",
+                )
 
 # --------------------------
 # Footer: Reset Selections (green per request)
