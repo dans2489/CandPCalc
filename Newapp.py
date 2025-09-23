@@ -737,18 +737,23 @@ if workshop_mode == "Host":
 
 # PRODUCTION — only appears when selected
 elif workshop_mode == "Production":
-   st.subheader("Production Settings")
+    st.subheader("Production Settings")
 
-apportion_rule = st.radio(
-    "Apportionment method",
-    ["By labour minutes (capacity @ 100%)", "By assigned prisoners"],
-    index=0,
-    help=(
-        "How we share weekly overheads and instructor time between items:\n"
-        "• By labour minutes: uses ‘assigned prisoners × weekly hours × 60’. Items with more minutes get a bigger share.\n"
-        "• By assigned prisoners: counts heads only (simpler, less precise)."
-    ),
-)
+    apportion_rule = st.radio(
+        "How should we share overheads and supervisor cost between items?",
+        ["By labour minutes (capacity @ 100%)", "By assigned prisoners"],
+        index=0,
+    )
+
+    with st.expander("What does this mean (plain English)?", expanded=False):
+        st.markdown(
+            """
+            **By labour minutes (capacity @ 100%) — recommended**  
+            Minutes available per item at full utilisation = **assigned prisoners × weekly hours × 60**.  
+            More minutes ⇒ bigger share of weekly overheads and supervisor time.  
+            **By assigned prisoners** just counts heads (simpler, less precise).
+            """
+        )
 
     num_items = st.number_input("Number of items produced?", min_value=1, value=1, step=1, key="num_items_prod")
     items = []
@@ -775,31 +780,13 @@ apportion_rule = st.radio(
     if errors:
         st.error("Fix errors before production calculations:\n- " + "\n- ".join(errors))
     else:
-      # Preview capacities + Output % sliders (use item name in labels)
-output_percents = []
-for i, it in enumerate(items):
-    # Use the item name if provided; otherwise fall back to "Item N"
-    item_label = (it.get("name") or "").strip() or f"Item {i+1}"
-
-    cap_preview = 0.0
-    if it["minutes"] > 0 and it["required"] > 0 and it["assigned"] > 0 and workshop_hours > 0:
-        cap_preview = (it["assigned"] * workshop_hours * 60.0) / (it["minutes"] * it["required"])
-
-    # Capacity line uses the item name
-    st.markdown(f"Capacity @ 100% for **{item_label}**: **{cap_preview:.0f} units/week**")
-
-    # Output % slider uses the item name and includes a “?” tooltip
-    output_percents.append(
-        st.slider(
-            f"Output % for {item_label}",
-            min_value=0, max_value=100, value=100, key=f"percent_{i}",
-            help=(
-                "Output % = how busy this item runs versus its maximum weekly capacity.\n"
-                "• 100% = maximum units/week (given assigned prisoners and minutes per unit).\n"
-                "• Lower output makes fewer units, so unit cost rises (same weekly costs spread over fewer units)."
-            ),
-        )
-    )
+        output_percents = []
+        for i, it in enumerate(items):
+            cap_preview = 0.0
+            if it["minutes"] > 0 and it["required"] > 0 and it["assigned"] > 0 and workshop_hours > 0:
+                cap_preview = (it["assigned"] * workshop_hours * 60.0) / (it["minutes"] * it["required"])
+            st.markdown(f"Item {i+1} capacity @ 100%: **{cap_preview:.0f} units/week**")
+            output_percents.append(st.slider(f"Output % for Item {i+1}", min_value=0, max_value=100, value=100, key=f"percent_{i}"))
 
         results = calculate_production(items, output_percents, apportion_rule)
 
