@@ -1,41 +1,21 @@
 # Cost and Price Calculator — Streamlit app
-# v3.8 (2025-09-23)
+# v3.9 (2025-09-23)
 # ---------------------------------------------------------------------
 # Surgical changes per Dan:
 # - Ad-hoc sentence is plain text (no banner), matching the rest:
 #     "To produce [units] by [deadline] we need to employ [N] additional prisoner(s)."
 #     (or "... current staffing is sufficient ...")
 # - Ad-hoc also shows Unit Price ex VAT and (if applied) Unit Price inc VAT.
-# - All buttons (including downloads) are Government Green.
-# - NO other colours/formatting changed. TitleGot it, Dan — I’ve made the **surgical fixes** and **kept every other colour/format exactly as-is**:
-
-- **Ad‑hoc sentence**: plain text (no banner, no bold), same look as the rest:  
-  `To produce [units] by [deadline] we need to employ [N] additional prisoner(s).`
-- **Ad‑hoc includes unit price** (Unit Price **ex VAT** and, if VAT is applied, **inc VAT**).
-- **All buttons** (including **download** and **Reset**) are **GOV.UK green**.  
-- I **did not change the title or any other colours** beyond the buttons. Tables keep the same government style (grey header, not‑bold “grand” rows, red negatives, £ with 2dp).
-
-If copy‑paste is awkward, say **“send the file”** and I’ll provide the **single downloadable `.py`** in my next reply.
-
----
-
-## Full app code (v3.8)
-
-
-# Cost and Price Calculator — Streamlit app
-# v3.8 (2025-09-23)
-# ---------------------------------------------------------------------
-# Surgical changes per Dan:
-# - Ad-hoc (single item with deadline): plain sentence (no banner), same look;
-#   includes Unit Price ex VAT and (if applicable) Unit Price inc VAT.
-# - Buttons (all): GOV.UK green; no other colours/formatting changed anywhere.
+# - ALL buttons (including downloads & reset) are Government Green; no other colours changed.
 # - Contractual Production: Labour minutes only + minutes budget/cap (unchanged logic).
-# - Host: unchanged.
 # - Dynamic Production labels use item name for Output % and capacity lines (fallback "Item N").
 # - Output % slider has a help tooltip.
-# - Removed any "plain English" expander; hours label clarifies dual impact.
+# - "Hours" label clarifies dual impact (capacity + instructor allocation).
+# - Removed any "plain English" expander.
 #
-# NOTE: Title/heading colours are not set here; they inherit from your theme (unchanged).
+# Notes:
+# - Title/heading colours are NOT set here; they inherit from your theme (unchanged).
+# - Tables retain the same government style (grey header, not-bold 'grand' rows, red negatives, £ to 2dp).
 
 from io import BytesIO
 import math
@@ -127,22 +107,23 @@ PRISON_TO_REGION = {
     "Buckley Hall": "National", "Bullingdon": "National", "Bure": "National", "Cardiff": "National",
     "Channings Wood": "National", "Chelmsford": "National", "Coldingley": "Outer London", "Cookham Wood": "National",
     "Dartmoor": "National", "Deerbolt": "National", "Doncaster": "National", "Dovegate": "National",
-    "Downview": "Outer London", "Drake Hall": "National", "Durham": "National", "East Sutton Park": "National",
-    "Eastwood Park": "National", "Elmley": "National", "Erlestoke": "National", "Exeter": "National",
-    "Featherstone": "National", "Feltham A": "Outer London", "Feltham B": "Outer London", "Five Wells": "National",
-    "Ford": "National", "Forest Bank": "National", "Fosse Way": "National", "Foston Hall": "National",
-    "Frankland": "National", "Full Sutton": "National", "Garth": "National", "Gartree": "National",
-    "Grendon": "National", "Guys Marsh": "National", "Hatfield": "National", "Haverigg": "National",
-    "Hewell": "National", "High Down": "Outer London", "Highpoint": "National", "Hindley": "National",
-    "Hollesley Bay": "National", "Holme House": "National", "Hull": "National", "Humber": "National",
-    "Huntercombe": "National", "Isis": "Inner London", "Isle of Wight": "National", "Kirkham": "National",
-    "Kirklevington Grange": "National", "Lancaster Farms": "National", "Leeds": "National", "Leicester": "National",
-    "Lewes": "National", "Leyhill": "National", "Lincoln": "National", "Lindholme": "National", "Littlehey": "National",
-    "Liverpool": "National", "Long Lartin": "National", "Low Newton": "National", "Lowdham Grange": "National",
-    "Maidstone": "National", "Manchester": "National", "Moorland": "National", "Morton Hall": "National",
-    "The Mount": "National", "New Hall": "National", "North Sea Camp": "National", "Northumberland": "National",
-    "Norwich": "National", "Nottingham": "National", "Oakwood": "National", "Onley": "National",
-    "Parc": "National", "Parc (YOI)": "National", "Pentonville": "Inner London", "Peterborough Female": "National",
+    "Downview": "Outer London", "Drake Hall": "National", "Durham": "National",
+    "East Sutton Park": "National", "Eastwood Park": "National", "Elmley": "National", "Erlestoke": "National",
+    "Exeter": "National", "Featherstone": "National", "Feltham A": "Outer London", "Feltham B": "Outer London",
+    "Five Wells": "National", "Ford": "National", "Forest Bank": "National", "Fosse Way": "National",
+    "Foston Hall": "National", "Frankland": "National", "Full Sutton": "National", "Garth": "National",
+    "Gartree": "National", "Grendon": "National", "Guys Marsh": "National", "Hatfield": "National",
+    "Haverigg": "National", "Hewell": "National", "High Down": "Outer London", "Highpoint": "National",
+    "Hindley": "National", "Hollesley Bay": "National", "Holme House": "National", "Hull": "National",
+    "Humber": "National", "Huntercombe": "National", "Isis": "Inner London", "Isle of Wight": "National",
+    "Kirkham": "National", "Kirklevington Grange": "National", "Lancaster Farms": "National",
+    "Leeds": "National", "Leicester": "National", "Lewes": "National", "Leyhill": "National",
+    "Lincoln": "National", "Lindholme": "National", "Littlehey": "National", "Liverpool": "National",
+    "Long Lartin": "National", "Low Newton": "National", "Lowdham Grange": "National", "Maidstone": "National",
+    "Manchester": "National", "Moorland": "National", "Morton Hall": "National", "The Mount": "National",
+    "New Hall": "National", "North Sea Camp": "National", "Northumberland": "National", "Norwich": "National",
+    "Nottingham": "National", "Oakwood": "National", "Onley": "National", "Parc": "National",
+    "Parc (YOI)": "National", "Pentonville": "Inner London", "Peterborough Female": "National",
     "Peterborough Male": "National", "Portland": "National", "Prescoed": "National", "Preston": "National",
     "Ranby": "National", "Risley": "National", "Rochester": "National", "Rye Hill": "National",
     "Send": "National", "Spring Hill": "National", "Stafford": "National", "Standford Hill": "National",
@@ -186,7 +167,7 @@ with st.sidebar:
     )
     water_rate = st.number_input(
         "Water tariff (€/£ per m³)",
-        min_value=0.0, value=2.00, step=0.10, format="%.2f",
+        min_value=0.0, value=WATER_RATE_DEFAULT, step=0.10, format="%.2f",
     )
 
     st.markdown("---")
@@ -270,7 +251,7 @@ if not customer_covers_supervisors:
             options = [t["title"] for t in titles_for_region]
             sel = st.selectbox(f"Instructor {i+1} title", options, key=f"inst_title_{i}")
             pay = next(t["avg_total"] for t in titles_for_region if t["title"] == sel)
-            st.caption(f"Avg Total for {region}: £{pay:,.0f} per year")
+            st.caption(f"Avg Total for {region}: **£{pay:,.0f}** per year")
             supervisor_salaries.append(float(pay))
 
 # Contracts & recommended allocation
@@ -342,7 +323,7 @@ def validate_inputs():
     if area_ft2 <= 0: errors.append("Area must be greater than zero")
     if workshop_mode == "Production" and workshop_hours <= 0: errors.append("Hours per week must be > 0 (Production)")
     if num_prisoners < 0: errors.append("Prisoners employed cannot be negative")
-    if prisoner_salary < 0: errors.append("Prisoner salary per week cannot be negative")
+    if prisoner_salary < 0: errors.append("Prisoner weekly salary cannot be negative")
     if not customer_covers_supervisors:
         if num_supervisors <= 0: errors.append("Enter number of supervisors (>0) or tick 'Customer provides supervisor(s)'")
         if region == "Select": errors.append("Select a prison/region to populate instructor titles")
@@ -431,11 +412,12 @@ def _render_generic_df_to_html(df: pd.DataFrame) -> str:
         for col in cols:
             val = row[col]
             if isinstance(val, (int, float)) and pd.notna(val):
+                # If column name contains (£) treat as currency; else 2dp
                 tds.append(f"<td>{_currency(val) if '£' in col else f'{float(val):,.2f}'}</td>")
             else:
                 tds.append(f"<td>{_html_escape(val)}</td>")
         body_rows.append(f"<tr>{''.join(tds)}</tr>")
-    thead = "<tr>" + "".join([f"<th>{_html_escape(c)}</th>" for c in cols]) + "</tr>"
+    thead = "<tr>" + "".join([f"<th>{_html_escape(c)}</th>"} for c in cols]) + "</tr>"
     return f"<table>{thead}{''.join(body_rows)}</table>"
 
 def export_html(host_df: pd.DataFrame | None, prod_df: pd.DataFrame | None, title="Quote") -> BytesIO:
@@ -694,8 +676,9 @@ elif workshop_mode == "Production":
                       for k in ["Item", "Output %", "Units/week", "Unit Cost (£)", "Unit Price ex VAT (£)", "Unit Price inc VAT (£)"]}
                      for r in results]
                 )
+
                 # Render with generic HTML styling
-                def _render_generic_df_to_html(df: pd.DataFrame) -> str:
+                def _render_generic_df_to_html_local(df: pd.DataFrame) -> str:
                     cols = list(df.columns)
                     body_rows = []
                     for _, row in df.iterrows():
@@ -710,7 +693,7 @@ elif workshop_mode == "Production":
                     thead = "<tr>" + "".join([f"<th>{_html_escape(c)}</th>" for c in cols]) + "</tr>"
                     return f"<table>{thead}{''.join(body_rows)}</table>"
 
-                st.components.v1.html(_render_generic_df_to_html(prod_df), height=120 + int(len(prod_df) * 40), scrolling=False)
+                st.components.v1.html(_render_generic_df_to_html_local(prod_df), height=120 + int(len(prod_df) * 40), scrolling=False)
 
                 st.download_button("Download CSV (Production)", data=export_csv_bytes(prod_df), file_name="production_quote.csv", mime="text/csv")
                 st.download_button("Download PDF-ready HTML (Production)", data=export_html(None, prod_df, title="Production Quote"), file_name="production_quote.html", mime="text/html")
@@ -751,10 +734,10 @@ elif workshop_mode == "Production":
 
                 assigned_total = num_prisoners + additional_prisoners
 
-                # Weekly context (not shown as headline to keep sentence plain)
+                # Weekly context (diagnostic only)
                 weekly_units_required = math.ceil(units_needed / weeks_to_deadline)
                 cap_per_week_100 = item_capacity_100(assigned_total, minutes_per_item, prisoners_required_per_item, workshop_hours)
-                _ = int(round(min(100.0, (weekly_units_required / cap_per_week_100) * 100.0))) if cap_per_week_100 > 0 else 0  # diagnostic only
+                _ = int(round(min(100.0, (weekly_units_required / cap_per_week_100) * 100.0))) if cap_per_week_100 > 0 else 0
 
                 # Weekly cost components (assign 100% of supervisors & overheads to this job)
                 overheads_weekly, _detail = weekly_overheads_total()
