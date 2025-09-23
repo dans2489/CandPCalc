@@ -1,14 +1,13 @@
 # Cost and Price Calculator — Streamlit app
-# v3.9 (2025-09-23)
+# v4.0 (2025-09-23)
 # ---------------------------------------------------------------------
-# Surgical changes per Dan:
-# - Ad-hoc (single item with deadline): plain sentence (no banner), same look;
-#   includes Unit Price ex VAT and (if applicable) Unit Price inc VAT.
-# - Ad-hoc table now uses a dedicated two-column HTML renderer matching app style
-#   (no third column, no NaNs, correct fonts via existing CSS).
-# - Buttons (all): GOV.UK green; no other colours/formatting changed anywhere.
-# - Contractual Production: Labour minutes only + minutes budget/cap (unchanged logic).
-# - Host: unchanged.
+# Fixes per Dan:
+# - Ad-hoc table now renders via st.markdown (no iframe), so it inherits the same CSS/font as the app.
+# - Host & Production tables also render via st.markdown for consistency.
+# - Introduced a GOV.UK-like table class and a global font stack to keep fonts identical across sections.
+# - Buttons remain GOV.UK green. No other colours/heading styles changed. Title not overridden.
+# - Ad-hoc still includes Unit Price ex VAT and (if applied) Unit Price inc VAT, and prints the plain sentence.
+# - Contractual Production and Host logic unchanged (Labour minutes only; minutes budget/cap).
 
 from io import BytesIO
 import math
@@ -30,12 +29,19 @@ st.set_page_config(
 GOV_GREEN = "#00703C"
 GOV_GREEN_DARK = "#005A30"
 GOV_RED = "#D4351C"
+GOV_YELLOW = "#FFDD00"  # focus accent (not overused)
 
-# Minimal CSS — keep established look; only make ALL buttons GOV.UK green + consistent tables
+# Global CSS — GOV.UK-style font + table chrome; primary buttons green
 st.markdown(
     f"""
 <style>
-/* ALL buttons green (including Reset and Download) */
+/* Global font stack approximating GOV.UK (GDS Transport where available) */
+html, body, .stApp, .stMarkdown, .stText, .stDataFrame, .stRadio, .stSelectbox, .stNumberInput, table {{
+  font-family: 'GDS Transport', 'Helvetica Neue', Arial, Helvetica, sans-serif;
+  color: #0b0c0c;
+}}
+
+/* Primary buttons GOV.UK green (including downloads & reset) */
 .stButton > button, .stDownloadButton > button {{
   background-color: {GOV_GREEN} !important;
   color: #fff !important;
@@ -46,29 +52,35 @@ st.markdown(
   border-color: {GOV_GREEN_DARK} !important;
 }}
 
-/* Tables — government style */
-table {{
+/* Radio/checkbox focus outline in GOV.UK yellow, where possible */
+input[type="radio"]:focus, input[type="checkbox"]:focus {{
+  outline: 3px solid {GOV_YELLOW} !important;
+  outline-offset: 1px;
+}}
+
+/* GOV.UK-style table */
+.govuk-table {{
   width: 100%;
   border-collapse: collapse;
-  margin: 0 0 0.5rem 0;
+  margin: 0 0 0.75rem 0;
   font-size: 0.95rem;
 }}
-th, td {{
-  border-bottom: 1px solid #ddd;
+.govuk-table th, .govuk-table td {{
+  border-bottom: 1px solid #b1b4b6; /* subtle GOV.UK border */
   padding: 0.5rem 0.6rem;
   text-align: left;
   vertical-align: top;
 }}
-th {{
+.govuk-table th {{
   background: #f3f2f1;  /* GOV.UK grey header */
   font-weight: 600;
   color: #0b0c0c;
 }}
-tr.grand td {{
+.govuk-table tr.grand td {{
   background: #f3f2f1 !important;  /* grand rows look like header (not bold) */
   font-weight: 400 !important;
 }}
-td.neg {{ color: {GOV_RED}; }}
+.govuk-table td.neg {{ color: {GOV_RED}; }}
 </style>
 """,
     unsafe_allow_html=True,
@@ -255,7 +267,6 @@ st.subheader("Instructor Time Allocation")
 st.info(f"Recommended: {recommended_pct}%")
 chosen_pct = st.slider("Adjust instructor % allocation", 0, 100, int(recommended_pct), key="chosen_pct")
 
-# Guardrail if less than recommended
 if chosen_pct < int(round(recommended_pct)):
     st.warning("You have selected less than recommended — please explain why here.")
     reason = st.text_area("Reason for using a lower allocation", key="alloc_reason")
@@ -303,6 +314,7 @@ st.caption(
 # --------------------------
 # Validation (shared)
 # --------------------------
+
 def validate_inputs():
     errors = []
     if prison_choice == "Select": errors.append("Select prison")
@@ -315,7 +327,7 @@ def validate_inputs():
     if area_ft2 <= 0: errors.append("Area must be greater than zero")
     if workshop_mode == "Production" and workshop_hours <= 0: errors.append("Hours per week must be > 0 (Production)")
     if num_prisoners < 0: errors.append("Prisoners employed cannot be negative")
-    if prisoner_salary < 0: errors.append("Prisoner weekly salary cannot be negative")
+    if prisoner_salary < 0: errors.append("Prisoner salary per week cannot be negative")
     if not customer_covers_supervisors:
         if num_supervisors <= 0: errors.append("Enter number of supervisors (>0) or tick 'Customer provides supervisor(s)'")
         if region == "Select": errors.append("Select a prison/region to populate instructor titles")
@@ -324,7 +336,7 @@ def validate_inputs():
     return errors
 
 # --------------------------
-# Cost helpers & exports
+# HTML render helpers (use st.markdown so CSS applies; no iframe)
 # --------------------------
 
 def _currency(v) -> str:
@@ -334,8 +346,97 @@ def _currency(v) -> str:
         return ""
 
 
+def _html_escape(text: str) -> str:
+    return (str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+
+def _render_table_two_col(rows, amount_header="Amount (£)") -> str:
+    """rows: list of tuples (label, value, is_currency, is_grand=False)."""
+    header = f"<tr><th>Item</th><th>{_html_escape(amount_header)}</th></tr>"
+    out = ["<table class='govuk-table'>", header]
+    for label, value, is_currency, *rest in rows:
+        is_grand = bool(rest[0]) if rest else False
+        # Format value
+        if value is None:
+            val_txt = ""
+        elif is_currency:
+            val_txt = _currency(value)
+        else:
+            try:
+                fval = float(value)
+                val_txt = f"{int(fval):,}" if fval.is_integer() else f"{fval:,.2f}"
+            except Exception:
+                val_txt = _html_escape(value)
+        row_html = f"<tr{' class=\'grand\'' if is_grand else ''}><td>{_html_escape(label)}</td><td>{val_txt}</td></tr>"
+        out.append(row_html)
+    out.append("</table>")
+    return "".join(out)
+
+
+def _render_host_df_to_html(host_df: pd.DataFrame) -> str:
+    rows_html = []
+    for _, row in host_df.iterrows():
+        item = str(row["Item"]) ; val = row["Amount (£)"]
+        neg_cls = ""
+        try:
+            neg_cls = " class='neg'" if float(val) < 0 else ""
+        except Exception:
+            pass
+        grand_cls = " class='grand'" if "Grand Total" in item else ""
+        if grand_cls:
+            rows_html.append(f"<tr{grand_cls}><td>{_html_escape(item)}</td><td>{_currency(val)}</td></tr>")
+        else:
+            rows_html.append(f"<tr><td>{_html_escape(item)}</td><td{neg_cls}>{_currency(val)}</td></tr>")
+    header = "<tr><th>Item</th><th>Amount (£)</th></tr>"
+    return f"<table class='govuk-table'>{header}{''.join(rows_html)}</table>"
+
+
+def _render_generic_df_to_html(df: pd.DataFrame) -> str:
+    cols = list(df.columns)
+    thead = "<tr>" + "".join([f"<th>{_html_escape(c)}</th>" for c in cols]) + "</tr>"
+    body_rows = []
+    for _, row in df.iterrows():
+        tds = []
+        for col in cols:
+            val = row[col]
+            if isinstance(val, (int, float)) and pd.notna(val):
+                tds.append(f"<td>{_currency(val) if '£' in col else f'{float(val):,.2f}'}</td>")
+            else:
+                tds.append(f"<td>{_html_escape(val)}</td>")
+        body_rows.append(f"<tr>{''.join(tds)}</tr>")
+    return f"<table class='govuk-table'>{thead}{''.join(body_rows)}</table>"
+
+
+def export_csv_bytes(df: pd.DataFrame) -> BytesIO:
+    b = BytesIO()
+    df.to_csv(b, index=False)
+    b.seek(0)
+    return b
+
+
+def export_html(host_df: pd.DataFrame | None, prod_df: pd.DataFrame | None, title="Quote") -> BytesIO:
+    html_parts = [
+        f"<h1>{_html_escape(title)}</h1>",
+        "<h2>Cost and Price Calculator — Quote</h2>",
+        (
+            f"<p><strong>Customer:</strong> {_html_escape(customer_name or '')} &nbsp; "
+            f"<strong>Prison:</strong> {_html_escape(prison_choice or '')} &nbsp; "
+            f"<strong>Region:</strong> {_html_escape(region or '')}</p>"
+        )
+    ]
+    if host_df is not None:
+        html_parts.append("<h3>Host Costs</h3>")
+        html_parts.append(_render_host_df_to_html(host_df))
+    if prod_df is not None:
+        html_parts.append("<h3>Production Items</h3>")
+        html_parts.append(_render_generic_df_to_html(prod_df))
+    b = BytesIO("".join(html_parts).encode("utf-8")); b.seek(0); return b
+
+# --------------------------
+# Host costs (monthly)
+# --------------------------
+
 def monthly_energy_costs():
-    """EUI (kWh/m²/y) × area (m²) × tariff ÷ 12."""
     eui = EUI_MAP.get(workshop_type, None)
     if not eui or area_m2 <= 0:
         return 0.0, 0.0
@@ -347,7 +448,6 @@ def monthly_energy_costs():
 
 
 def monthly_water_costs():
-    """Simple people-based benchmark: ~15 L/person/day, 5 days/week."""
     persons = num_prisoners + (0 if customer_covers_supervisors else num_supervisors)
     litres_per_day = 15.0
     days_per_week = 5.0
@@ -357,7 +457,6 @@ def monthly_water_costs():
 
 
 def weekly_overheads_total():
-    """Electricity, gas, water, admin, maintenance → weekly total + monthly breakdown."""
     if maint_method.startswith("£/m² per year"):
         rate = st.session_state.get("maint_rate_per_m2_y", 8.0)
         maint_m = (rate * area_m2) / 12.0
@@ -374,100 +473,6 @@ def weekly_overheads_total():
         "Depreciation/Maintenance (estimated)": maint_m,
     }
 
-
-def export_csv_bytes(df: pd.DataFrame) -> BytesIO:
-    b = BytesIO()
-    df.to_csv(b, index=False)
-    b.seek(0)
-    return b
-
-
-def _html_escape(text: str) -> str:
-    return (str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
-
-
-def _render_host_df_to_html(host_df: pd.DataFrame) -> str:
-    rows_html = []
-    for _, row in host_df.iterrows():
-        item = str(row["Item"]); val = row["Amount (£)"]
-        neg_cls = ""
-        try:
-            neg_cls = " class='neg'" if float(val) < 0 else ""
-        except Exception:
-            pass
-        grand_cls = " class='grand'" if "Grand Total" in item else ""
-        if grand_cls:
-            rows_html.append(f"<tr{grand_cls}><td>{_html_escape(item)}</td><td>{_currency(val)}</td></tr>")
-        else:
-            rows_html.append(f"<tr><td>{_html_escape(item)}</td><td{neg_cls}>{_currency(val)}</td></tr>")
-    header = "<tr><th>Item</th><th>Amount (£)</th></tr>"
-    return f"<table>{header}{''.join(rows_html)}</table>"
-
-
-def _render_generic_df_to_html(df: pd.DataFrame) -> str:
-    cols = list(df.columns)
-    body_rows = []
-    for _, row in df.iterrows():
-        tds = []
-        for col in cols:
-            val = row[col]
-            if isinstance(val, (int, float)) and pd.notna(val):
-                tds.append(f"<td>{_currency(val) if '£' in col else f'{float(val):,.2f}'}</td>")
-            else:
-                tds.append(f"<td>{_html_escape(val)}</td>")
-        body_rows.append(f"<tr>{''.join(tds)}</tr>")
-    thead = "<tr>" + "".join([f"<th>{_html_escape(c)}</th>" for c in cols]) + "</tr>"
-    return f"<table>{thead}{''.join(body_rows)}</table>"
-
-# NEW: two-column renderer for ad-hoc (no NaNs, same styling)
-
-def _render_two_col(rows, amount_header="Amount (£)") -> str:
-    """rows: list of tuples (label, value, is_currency, is_grand=False)."""
-    header = f"<tr><th>Item</th><th>{_html_escape(amount_header)}</th></tr>"
-    out = ["<table>", header]
-    for label, value, is_currency, *rest in rows:
-        is_grand = False
-        if rest:
-            is_grand = bool(rest[0])
-        # Format value
-        if value is None:
-            val_txt = ""
-        elif is_currency:
-            val_txt = _currency(value)
-        else:
-            # non-currency: show int without dp if whole number, else 2dp
-            try:
-                fval = float(value)
-                if fval.is_integer():
-                    val_txt = f"{int(fval):,}"
-                else:
-                    val_txt = f"{fval:,.2f}"
-            except Exception:
-                val_txt = _html_escape(value)
-        row_html = f"<tr{' class=\'grand\'' if is_grand else ''}><td>{_html_escape(label)}</td><td>{val_txt}</td></tr>"
-        out.append(row_html)
-    out.append("</table>")
-    return "".join(out)
-
-
-def export_html(host_df: pd.DataFrame | None, prod_df: pd.DataFrame | None, title="Quote") -> BytesIO:
-    html_parts = [f"# {_html_escape(title)}", "\n\n## Cost and Price Calculator — Quote\n"]
-    html_parts.append(
-        f"<p><strong>Customer:</strong> {_html_escape(customer_name or '')} &nbsp; "
-        f"<strong>Prison:</strong> {_html_escape(prison_choice or '')} &nbsp; "
-        f"<strong>Region:</strong> {_html_escape(region or '')}</p>\n"
-    )
-    if host_df is not None:
-        html_parts.append("\n\n### Host Costs\n")
-        html_parts.append(_render_host_df_to_html(host_df))
-    if prod_df is not None:
-        html_parts.append("\n\n### Production Items\n")
-        html_parts.append(_render_generic_df_to_html(prod_df))
-    b = BytesIO("".join(html_parts).encode("utf-8")); b.seek(0); return b
-
-# --------------------------
-# Host costs (monthly)
-# --------------------------
 
 def calculate_host_costs():
     breakdown = {}
@@ -488,7 +493,6 @@ def calculate_host_costs():
     else:
         breakdown["Depreciation/Maintenance (estimated)"] = maint_monthly
 
-    # Development charge on OVERHEADS (Commercial only)
     overheads_subtotal = (
         breakdown.get("Electricity (estimated)", 0.0)
         + breakdown.get("Gas (estimated)", 0.0)
@@ -529,14 +533,12 @@ def labour_minutes_budget(num_pris: int, hours: float) -> float:
 
 
 def item_capacity_100(prisoners_assigned: int, minutes_per_item: float, prisoners_required: int, hours: float) -> float:
-    """Units/week @100% = (assigned × hours × 60) / (minutes_per_item × prisoners_required)."""
     if prisoners_assigned <= 0 or minutes_per_item <= 0 or prisoners_required <= 0 or hours <= 0:
         return 0.0
     return (prisoners_assigned * hours * 60.0) / (minutes_per_item * prisoners_required)
 
 
 def calculate_production_contractual(items, output_percents):
-    """Weekly production model (Contractual): Labour minutes apportionment only."""
     overheads_weekly, _detail = weekly_overheads_total()
     sup_weekly_total = (
         sum((s / 52) * (effective_pct / 100) for s in supervisor_salaries)
@@ -599,15 +601,13 @@ if workshop_mode == "Host":
             heading_name = customer_name if str(customer_name).strip() else "Customer"
             st.subheader(f"Host Contract for {heading_name} (costs are per month)")
             breakdown, totals = calculate_host_costs()
-            # Render table
             rows = list(breakdown.items()) + [
                 ("Subtotal", sum(breakdown.values())),
                 (f"VAT ({totals.get('VAT %',0):.1f}%)", totals.get("VAT (£)",0)),
                 ("Grand Total (£/month)", totals.get("Grand Total (£/month)",0)),
             ]
             host_df = pd.DataFrame(rows, columns=["Item", "Amount (£)"])
-            st.components.v1.html(_render_host_df_to_html(host_df), height=120 + int(len(host_df) * 40), scrolling=False)
-            # Downloads
+            st.markdown(_render_host_df_to_html(host_df), unsafe_allow_html=True)
             st.download_button("Download CSV (Host)", data=export_csv_bytes(host_df), file_name="host_quote.csv", mime="text/csv")
             st.download_button("Download PDF-ready HTML (Host)", data=export_html(host_df, None, title="Host Quote"), file_name="host_quote.html", mime="text/html")
 
@@ -622,9 +622,7 @@ elif workshop_mode == "Production":
         help="Contractual work = ongoing weekly production. Ad-hoc = a one-off job with a delivery deadline."
     )
 
-    # -----------------------------
     # A) CONTRACTUAL WORK (as normal)
-    # -----------------------------
     if prod_type == "Contractual work":
         st.caption("Apportionment method: Labour minutes — overheads & instructor time are shared by assigned labour minutes (assigned prisoners × weekly hours × 60).")
 
@@ -688,37 +686,18 @@ elif workshop_mode == "Production":
 
                 results = calculate_production_contractual(items, output_percents)
 
-                # Show results per item
-                for r in results:
-                    st.markdown(f"### {r['Item'] or 'Item'}")
-                    st.write(f"- Output %: {r['Output %']}%")
-                    st.write(f"- Units/week: {r['Units/week']}")
-                    if r["Unit Cost (£)"] is None:
-                        st.write("- Unit Cost (£): N/A — check minutes/prisoners assigned/workshop hours or increase Output %")
-                        st.write("- Unit Price ex VAT (£): N/A")
-                        st.write("- Unit Price inc VAT (£): N/A")
-                    else:
-                        st.write(f"- Unit Cost (£): {_currency(r['Unit Cost (£)'])}")
-                        if r["Unit Price ex VAT (£)"] is not None:
-                            st.write(f"- Unit Price ex VAT (£): {_currency(r['Unit Price ex VAT (£)'])}")
-                        if r["Unit Price inc VAT (£)"] is not None:
-                            st.write(f"- Unit Price inc VAT (£): {_currency(r['Unit Price inc VAT (£)'])}")
-
-                # Export table
+                # Summarise results in a simple HTML table
                 prod_df = pd.DataFrame(
                     [{k: (None if r[k] is None else (round(float(r[k]), 2) if isinstance(r[k], (int, float)) else r[k]))
                       for k in ["Item", "Output %", "Units/week", "Unit Cost (£)", "Unit Price ex VAT (£)", "Unit Price inc VAT (£)"]}
                      for r in results]
                 )
-                # Render with generic HTML styling
-                st.components.v1.html(_render_generic_df_to_html(prod_df), height=120 + int(len(prod_df) * 40), scrolling=False)
+                st.markdown(_render_generic_df_to_html(prod_df), unsafe_allow_html=True)
 
                 st.download_button("Download CSV (Production)", data=export_csv_bytes(prod_df), file_name="production_quote.csv", mime="text/csv")
                 st.download_button("Download PDF-ready HTML (Production)", data=export_html(None, prod_df, title="Production Quote"), file_name="production_quote.html", mime="text/html")
 
-    # ----------------------------------------
-    # B) AD-HOC COSTS (single item) with deadline — plain text + unit price
-    # ----------------------------------------
+    # B) AD-HOC COSTS (single item) with deadline
     else:
         st.caption("Provide item details and a delivery deadline. The calculator shows if extra prisoners are needed and the total job price (with unit price).")
 
@@ -752,12 +731,6 @@ elif workshop_mode == "Production":
 
                 assigned_total = num_prisoners + additional_prisoners
 
-                # Weekly context (diagnostic only)
-                weekly_units_required = math.ceil(units_needed / weeks_to_deadline)
-                cap_per_week_100 = item_capacity_100(assigned_total, minutes_per_item, prisoners_required_per_item, workshop_hours)
-                _ = int(round(min(100.0, (weekly_units_required / cap_per_week_100) * 100.0))) if cap_per_week_100 > 0 else 0
-
-                # Weekly cost components (assign 100% of supervisors & overheads to this job)
                 overheads_weekly, _detail = weekly_overheads_total()
                 sup_weekly_total = (
                     sum((s / 52) * (effective_pct / 100) for s in supervisor_salaries)
@@ -766,22 +739,20 @@ elif workshop_mode == "Production":
                 prisoners_weekly_cost = assigned_total * prisoner_salary
                 weekly_cost_total = prisoners_weekly_cost + sup_weekly_total + overheads_weekly
 
-                # Job totals (weeks × weekly cost)
                 job_cost_ex_vat = weekly_cost_total * weeks_to_deadline
                 vat_amount = (job_cost_ex_vat * (vat_rate / 100.0)) if (customer_type == "Commercial" and apply_vat) else 0.0
                 job_cost_inc_vat = job_cost_ex_vat + vat_amount
 
-                # Item prices
                 unit_price_ex_vat = (job_cost_ex_vat / units_needed) if units_needed > 0 else None
                 unit_price_inc_vat = (job_cost_inc_vat / units_needed) if (units_needed > 0 and (customer_type == "Commercial" and apply_vat)) else None
 
-                # Plain sentence (no banner, no bold) — matches your style
+                # Plain sentence (no banner)
                 if additional_prisoners > 0:
                     st.write(f"To produce {units_needed:,} by {deadline.isoformat()} we need to employ {additional_prisoners} additional prisoner(s).")
                 else:
                     st.write(f"To produce {units_needed:,} by {deadline.isoformat()} your current staffing is sufficient (no additional prisoners required).")
 
-                # Build rows for two-column renderer (no NaNs)
+                # Build two-column rows
                 adhoc_rows = [
                     ("Weeks to deadline", weeks_to_deadline, False, False),
                     ("Weekly: Prisoners", prisoners_weekly_cost, True, False),
@@ -798,23 +769,15 @@ elif workshop_mode == "Production":
                     adhoc_rows.append(("Total Job Cost", job_cost_ex_vat, True, True))
                 adhoc_rows.append(("Unit Price ex VAT", unit_price_ex_vat, True, False))
 
-                # Render table with same styling
-                st.components.v1.html(_render_two_col(adhoc_rows), height=140 + int(len(adhoc_rows) * 40), scrolling=False)
+                # Render in-page (inherits CSS/font)
+                st.markdown(_render_table_two_col(adhoc_rows), unsafe_allow_html=True)
 
                 # Exports (two-column DataFrame for CSV/HTML)
-                export_rows = []
-                for (lbl, val, is_curr, is_grand) in adhoc_rows:
-                    export_rows.append((lbl, val))
+                export_rows = [(lbl, val) for (lbl, val, *_rest) in adhoc_rows]
                 adhoc_export_df = pd.DataFrame(export_rows, columns=["Item", "Amount (£)"])
 
                 st.download_button("Download CSV (Ad‑hoc)", data=export_csv_bytes(adhoc_export_df), file_name="adhoc_quote.csv", mime="text/csv")
-                # Reuse export_html generic section for layout; pass as 'prod_df'
-                st.download_button(
-                    "Download PDF-ready HTML (Ad‑hoc)",
-                    data=export_html(None, adhoc_export_df, title=f"Ad-hoc Quote — {display_name}"),
-                    file_name="adhoc_quote.html",
-                    mime="text/html",
-                )
+                st.download_button("Download PDF-ready HTML (Ad‑hoc)", data=export_html(None, adhoc_export_df, title=f"Ad-hoc Quote — {display_name}"), file_name="adhoc_quote.html", mime="text/html")
 
 # --------------------------
 # Footer: Reset Selections (green per request)
