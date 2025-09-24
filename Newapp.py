@@ -79,18 +79,28 @@ input[type="radio"]:focus, input[type="checkbox"]:focus {{
     unsafe_allow_html=True,
 )
 
-# --- Bordered panel around main content (GOV.UK subtle style) ---
+# --- Blue borders for main content and sidebar (no grey background) ---
 st.markdown("""
 <style>
-  .stApp { background-color: #f3f2f1; }
+  /* MAIN content panel */
   .appview-container .main .block-container,
   .main .block-container {
-    border: 1px solid #b1b4b6;
-    border-radius: 4px;
-    background: #ffffff;
-    padding: 24px;
-    max-width: 900px;
-    margin: 32px auto;
+    border: 1px solid #1D428A;   /* Thin blue border */
+    border-radius: 4px;           /* Gentle rounding */
+    background: #ffffff;          /* Keep white */
+    padding: 24px;                /* Space inside the border */
+    max-width: 900px;             /* Tidy readable width */
+    margin: 32px auto;            /* Center on page */
+  }
+
+  /* SIDEBAR panel */
+  /* Apply a bordered 'card' to the sidebar inner wrapper */
+  [data-testid="stSidebar"] > div:first-child {
+    border: 1px solid #1D428A;   /* Same thin blue border */
+    border-radius: 4px;           /* Match rounding */
+    background: #ffffff;          /* Keep white */
+    padding: 16px;                /* Inner spacing */
+    margin: 16px;                 /* Breathing room from edges */
   }
 </style>
 """, unsafe_allow_html=True)
