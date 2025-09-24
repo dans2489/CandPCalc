@@ -15,8 +15,7 @@ import streamlit as st
 st.set_page_config(
     page_title="Cost and Price Calculator",
     page_icon="💷",
-    layout="Centered",
-    initial_sidebar_state="expanded",
+        initial_sidebar_state="expanded",
 )
 
 # GOV.UK colours for buttons and negatives only
