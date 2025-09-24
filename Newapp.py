@@ -15,7 +15,7 @@ import streamlit as st
 st.set_page_config(
     page_title="Cost and Price Calculator",
     page_icon="💷",
-        initial_sidebar_state="expanded",
+    initial_sidebar_state="expanded",
 )
 
 # GOV.UK colours for buttons and negatives only
@@ -45,7 +45,7 @@ html, body, .stApp, .stMarkdown, .stText, .stDataFrame, .stRadio, .stSelectbox, 
   border-color: {GOV_GREEN_DARK} !important;
 }}
 
-/* Radio/checkbox focus outline in GOV.UK yellow, where possible */
+/* Radio/checkbox focus outline in GOV.UK yellow */
 input[type="radio"]:focus, input[type="checkbox"]:focus {{
   outline: 3px solid {GOV_YELLOW} !important;
   outline-offset: 1px;
@@ -59,18 +59,18 @@ input[type="radio"]:focus, input[type="checkbox"]:focus {{
   font-size: 0.95rem;
 }}
 .govuk-table th, .govuk-table td {{
-  border-bottom: 1px solid #b1b4b6; /* subtle GOV.UK border */
+  border-bottom: 1px solid #b1b4b6;
   padding: 0.5rem 0.6rem;
   text-align: left;
   vertical-align: top;
 }}
 .govuk-table th {{
-  background: #f3f2f1;  /* GOV.UK grey header */
+  background: #f3f2f1;
   font-weight: 600;
   color: #0b0c0c;
 }}
 .govuk-table tr.grand td {{
-  background: #f3f2f1 !important;  /* grand rows look like header (not bold) */
+  background: #f3f2f1 !important;
   font-weight: 400 !important;
 }}
 .govuk-table td.neg {{ color: {GOV_RED}; }}
@@ -78,6 +78,23 @@ input[type="radio"]:focus, input[type="checkbox"]:focus {{
 """,
     unsafe_allow_html=True,
 )
+
+# --- Bordered panel around main content (GOV.UK subtle style) ---
+st.markdown("""
+<style>
+  .stApp { background-color: #f3f2f1; }
+  .appview-container .main .block-container,
+  .main .block-container {
+    border: 1px solid #b1b4b6;
+    border-radius: 4px;
+    background: #ffffff;
+    padding: 24px;
+    max-width: 900px;
+    margin: 32px auto;
+  }
+</style>
+""", unsafe_allow_html=True)
+
 
 # Title — left exactly as before (no style overrides here)
 st.markdown('\n\n## Cost and Price Calculator\n\n', unsafe_allow_html=True)
