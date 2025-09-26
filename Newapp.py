@@ -96,10 +96,7 @@ st.markdown("## Cost and Price Calculator\n")
 # Example app body
 st.write("This is the main page content, centered even when the sidebar is open/closed.")
 
-with st.sidebar:
-    st.header("Wide Sidebar")
-    st.write("Your GOV.UK-styled controls go here.")
-    st.button("Run calculation")
+
 # -----------------------------
 # Constants
 # -----------------------------
