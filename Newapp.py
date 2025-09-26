@@ -45,14 +45,15 @@ st.markdown(
     .muted {{ color: #6f777b; }}
 
     /* Wider, more obvious sidebar */
-    [data-testid="stSidebar"] > div:first-child {{
-      min-width: 420px; max-width: 480px;
-      border-right: 3px solid {GOV_GREEN};
-      background: #f6fff6; padding-right: 8px;
+   [data-testid="stSidebar"] > div:first-child {
+  min-width: 420px; max-width: 480px;
+  padding-right: 8px;                 /* keep width, drop green border/bg */
+}
     }}
-    .sb-callout {{
-      background: #e5f5ec; border-left: 6px solid {GOV_GREEN};
-      padding: 8px 10px; margin-bottom: 6px; font-weight: 700;
+    .sb-callout {
+  background: #f3f2f1; border-left: 6px solid #b1b4b6;  /* GOV.UK grey tone */
+  padding: 8px 10px; margin-bottom: 6px; font-weight: 700;
+}
     }}
     .band-badge {{
       display:inline-block; background:#e8edff; border:1px solid #91a1ff; color:#1d2a7a;
@@ -201,8 +202,6 @@ workshop_usage = st.radio(
     key="workshop_usage",
 )
 USAGE_KEY = ("low" if "Low" in workshop_usage else "medium" if "Medium" in workshop_usage else "high")
-badge_txt = f"Band selected: {'Low' if USAGE_KEY=='low' else 'Medium' if USAGE_KEY=='medium' else 'High'}"
-st.markdown(f"<span class='band-badge'>{badge_txt}</span>", unsafe_allow_html=True)
 st.caption(
     "**What these mean:** "
     "**Low** – heated & lit, light plug/process loads; minimal machinery. "
