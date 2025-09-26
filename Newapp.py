@@ -20,7 +20,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Neutral CSS (no f-string → avoids brace escaping; neutral sidebar; full-width buttons)
 st.markdown(
     """
     <style>
@@ -48,14 +47,27 @@ st.markdown(
     td.neg { color: #D4351C; }
     .muted { color: #6f777b; }
 
-    /* Wider, neutral sidebar (no green background/border) */
+    /* ✅ Paint the ENTIRE sidebar panel a neutral grey & make it tall */
+    [data-testid="stSidebar"] {
+      background-color: #f3f2f1 !important;   /* neutral GOV.UK grey */
+      min-height: 100vh;                       /* fill full height */
+      min-width: 420px;                        /* wider sidebar */
+    }
+
+    /* Ensure inner wrappers don't override the background back to white */
+    [data-testid="stSidebar"] > div,
+    [data-testid="stSidebar"] > div > div,
+    [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
+      background: transparent !important;
+    }
+
+    /* Keep inner content wide enough (older Streamlit builds) */
     [data-testid="stSidebar"] > div:first-child {
-      min-width: 420px;
       max-width: 480px;
       padding-right: 8px;
     }
 
-    /* Optional neutral callout in the sidebar */
+    /* Optional neutral callout inside the sidebar (if you keep it) */
     .sb-callout {
       background: #f3f2f1; border-left: 6px solid #b1b4b6;
       padding: 8px 10px; margin-bottom: 6px; font-weight: 700;
