@@ -1,5 +1,4 @@
-# code.py — Cost and Price Calculator (Streamlit)
-# Tariff C&P integration: Low/Medium/High usage bands drive ALL energy/water/admin/maintenance costs.
+# Cost and Price Calculator — Streamlit (Tariff C&P integrated)
 # Author: M365 Copilot for Dan Smith — 2025-09-26
 
 from __future__ import annotations
@@ -29,13 +28,14 @@ st.markdown(
     f"""
     <style>
     html, body, [class*="css"] {{
-      font-family: system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Ubuntu, Cantarell, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Ubuntu, Cantarell,
+                   Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
     }}
     .stButton>button {{
       background: {GOV_GREEN}; color: #fff; border: 2px solid {GOV_GREEN_DARK};
       border-radius: 4px; padding: .45rem 1rem; font-weight: 600;
     }}
-    .stButton>button:focus {{ outline: 3px solid {GOV_YELLOW}; }}
+    .stButton>button:focus {{ outline: 3px solid {GOV_YELLOW}; outline-offset: 1px; }}
     table {{ border-collapse: collapse; width: 100%; margin: .5rem 0 1rem; }}
     th, td {{ border: 1px solid #b1b4b6; padding: .5rem .6rem; text-align: left; }}
     thead th {{ background: #f3f2f1; font-weight: 700; }}
@@ -76,18 +76,17 @@ PRISON_TO_REGION = {
     "Northumberland": "National", "Norwich": "National", "Nottingham": "National", "Oakwood": "National",
     "Onley": "National", "Parc": "National", "Parc (YOI)": "National", "Pentonville": "Inner London",
     "Peterborough Female": "National", "Peterborough Male": "National", "Portland": "National", "Prescoed": "National",
-    "Preston": "National", "Ranby": "National", "Risley": "National", "Rochester": "National",
-    "Rye Hill": "National", "Send": "National", "Spring Hill": "National", "Stafford": "National",
-    "Standford Hill": "National", "Stocken": "National", "Stoke Heath": "National", "Styal": "National",
-    "Sudbury": "National", "Swaleside": "National", "Swansea": "National", "Swinfen Hall": "National",
-    "Thameside": "Inner London", "Thorn Cross": "National", "Usk": "National", "Verne": "National",
-    "Wakefield": "National", "Wandsworth": "Inner London", "Warren Hill": "National", "Wayland": "National",
-    "Wealstun": "National", "Werrington": "National", "Wetherby": "National", "Whatton": "National",
-    "Whitemoor": "National", "Winchester": "National", "Woodhill": "Inner London", "Wormwood Scrubs": "Inner London",
-    "Wymott": "National",
+    "Preston": "National", "Ranby": "National", "Risley": "National", "Rochester": "National", "Rye Hill": "National",
+    "Send": "National", "Spring Hill": "National", "Stafford": "National", "Standford Hill": "National",
+    "Stocken": "National", "Stoke Heath": "National", "Styal": "National", "Sudbury": "National",
+    "Swaleside": "National", "Swansea": "National", "Swinfen Hall": "National", "Thameside": "Inner London",
+    "Thorn Cross": "National", "Usk": "National", "Verne": "National", "Wakefield": "National", "Wandsworth": "Inner London",
+    "Warren Hill": "National", "Wayland": "National", "Wealstun": "National", "Werrington": "National",
+    "Wetherby": "National", "Whatton": "National", "Whitemoor": "National", "Winchester": "National",
+    "Woodhill": "Inner London", "Wormwood Scrubs": "Inner London", "Wymott": "National",
 }
 
-# Instructor pay (displayed as “Instructor”)
+# Instructor pay by Region & Title
 SUPERVISOR_PAY = {
     "Inner London": [
         {"title": "Production Instructor: Band 3", "avg_total": 49203},
@@ -108,44 +107,21 @@ SUPERVISOR_PAY = {
 # -----------------------------
 TARIFF_BANDS = {
     "low": {
-        "intensity_per_year": {
-            "elec_kwh_per_m2": 65, "gas_kwh_per_m2": 80,
-            "water_m3_per_employee": 15, "maint_gbp_per_m2": 8,
-        },
-        "rates": {
-            "elec_unit": 0.2597, "elec_daily": 0.487,   # £/kWh, £/day
-            "gas_unit": 0.0629,  "gas_daily": 0.3403,   # £/kWh, £/day
-            "water_unit": 1.30,                          # £/m³
-            "admin_monthly": 150.0,                      # £/month
-        },
+        "intensity_per_year": {"elec_kwh_per_m2": 65, "gas_kwh_per_m2": 80, "water_m3_per_employee": 15, "maint_gbp_per_m2": 8},
+        "rates": {"elec_unit": 0.2597, "elec_daily": 0.487, "gas_unit": 0.0629, "gas_daily": 0.3403, "water_unit": 1.30, "admin_monthly": 150.0},
     },
     "medium": {
-        "intensity_per_year": {
-            "elec_kwh_per_m2": 110, "gas_kwh_per_m2": 120,
-            "water_m3_per_employee": 15, "maint_gbp_per_m2": 12,
-        },
-        "rates": {
-            "elec_unit": 0.2597, "elec_daily": 0.487,
-            "gas_unit": 0.0629,  "gas_daily": 0.3403,
-            "water_unit": 1.30,
-            "admin_monthly": 150.0,
-        },
+        "intensity_per_year": {"elec_kwh_per_m2": 110, "gas_kwh_per_m2": 120, "water_m3_per_employee": 15, "maint_gbp_per_m2": 12},
+        "rates": {"elec_unit": 0.2597, "elec_daily": 0.487, "gas_unit": 0.0629, "gas_daily": 0.3403, "water_unit": 1.30, "admin_monthly": 150.0},
     },
     "high": {
-        "intensity_per_year": {
-            "elec_kwh_per_m2": 160, "gas_kwh_per_m2": 180,
-            "water_m3_per_employee": 15, "maint_gbp_per_m2": 15,
-        },
-        "rates": {
-            "elec_unit": 0.2597, "elec_daily": 0.487,
-            "gas_unit": 0.0629,  "gas_daily": 0.3403,
-            "water_unit": 1.30,
-            "admin_monthly": 150.0,
-        },
+        "intensity_per_year": {"elec_kwh_per_m2": 160, "gas_kwh_per_m2": 180, "water_m3_per_employee": 15, "maint_gbp_per_m2": 15},
+        "rates": {"elec_unit": 0.2597, "elec_daily": 0.487, "gas_unit": 0.0629, "gas_daily": 0.3403, "water_unit": 1.30, "admin_monthly": 150.0},
     },
 }
+# (All rates above are exactly from your workbook.)  # [1](https://justiceuk-my.sharepoint.com/personal/dan_smith1_justice_gov_uk/_layouts/15/Doc.aspx?sourcedoc=%7BEB8330F5-8F7E-4D43-903F-E329FB3AD976%7D&file=Tariff%20C%26P.xlsx&action=default&mobileredirect=true)
 
-DAYS_PER_MONTH = 365.0 / 12.0  # ≈30.42 days
+DAYS_PER_MONTH = 365.0 / 12.0
 FT2_TO_M2 = 0.092903
 
 # -----------------------------
@@ -157,14 +133,9 @@ def _currency(v) -> str:
     except Exception:
         return ""
 
-
 def _render_table_two_col(rows, amount_header="Amount (£)") -> str:
     """rows: list of tuples (label, value, is_currency, is_grand=False)."""
-    out = [
-        "<table>",
-        f"<thead><tr><th>Item</th><th>{amount_header}</th></tr></thead>",
-        "<tbody>",
-    ]
+    out = ["<table>", f"<thead><tr><th>Item</th><th>{amount_header}</th></tr></thead>", "<tbody>"]
     for label, value, is_currency, *rest in rows:
         is_grand = bool(rest[0]) if rest else False
         if value is None:
@@ -182,25 +153,19 @@ def _render_table_two_col(rows, amount_header="Amount (£)") -> str:
     out.append("</tbody></table>")
     return "".join(out)
 
-
 def _render_host_df_to_html(host_df: pd.DataFrame) -> str:
     rows_html = []
     for _, row in host_df.iterrows():
-        item = str(row["Item"])
-        val = row["Amount (£)"]
+        item = str(row["Item"]); val = row["Amount (£)"]
         neg_cls = ""
         try:
             neg_cls = " class='neg'" if float(val) < 0 else ""
         except Exception:
             pass
         grand_cls = " class='grand'" if "Grand Total" in item else ""
-        if grand_cls:
-            rows_html.append(f"<tr class='grand'><td>{item}</td><td>{_currency(val)}</td></tr>")
-        else:
-            rows_html.append(f"<tr><td>{item}</td><td{neg_cls}>{_currency(val)}</td></tr>")
+        rows_html.append(f"<tr{grand_cls}><td>{item}</td><td{neg_cls}>{_currency(val)}</td></tr>")
     header = "<thead><tr><th>Item</th><th>Amount (£)</th></tr></thead>"
     return f"<table>{header}<tbody>{''.join(rows_html)}</tbody></table>"
-
 
 def _render_generic_df_to_html(df: pd.DataFrame) -> str:
     cols = list(df.columns)
@@ -217,31 +182,33 @@ def _render_generic_df_to_html(df: pd.DataFrame) -> str:
         body_rows.append("<tr>" + "".join(tds) + "</tr>")
     return f"<table>{thead}<tbody>{''.join(body_rows)}</tbody></table>"
 
-
 def export_csv_bytes(df: pd.DataFrame) -> BytesIO:
-    b = BytesIO()
-    df.to_csv(b, index=False)
-    b.seek(0)
-    return b
-
+    b = BytesIO(); df.to_csv(b, index=False); b.seek(0); return b
 
 def export_html(host_df: pd.DataFrame | None, prod_df: pd.DataFrame | None, title="Quote") -> BytesIO:
-    meta = (
-        f"<p><strong>Customer:</strong> {st.session_state.get('customer_name','')}<br>"
-        f"<strong>Prison:</strong> {st.session_state.get('prison_choice','')}<br>"
-        f"<strong>Region:</strong> {st.session_state.get('region','')}</p>"
-    )
-    parts = [f"<h1>{title}</h1>", meta]
+    # Keep the same GOV.UK-like table chrome as in-app
+    parts = [f"<h1>{title}</h1>",
+             f"<p class='muted'>Date: {date.today().isoformat()}</p>",
+             f"<p class='muted'><strong>Customer:</strong> {st.session_state.get('customer_name','')} &nbsp;|&nbsp; "
+             f"<strong>Prison:</strong> {st.session_state.get('prison_choice','')} &nbsp;|&nbsp; "
+             f"<strong>Region:</strong> {st.session_state.get('region_text','')}</p>"]
     if host_df is not None:
-        parts.append("<h2>Host Costs</h2>")
-        parts.append(_render_host_df_to_html(host_df))
+        parts += ["<h2>Host Costs</h2>", _render_host_df_to_html(host_df)]
     if prod_df is not None:
-        parts.append("<h2>Production Items</h2>")
-        parts.append(_render_generic_df_to_html(prod_df))
-    parts.append("<p>Prices are indicative and may change based on final scope and site conditions.</p>")
-    b = BytesIO("\n".join(parts).encode("utf-8"))
-    b.seek(0)
-    return b
+        parts += ["<h2>Production Items</h2>", _render_generic_df_to_html(prod_df)]
+    parts.append("<p class='muted'>Prices are indicative and may change based on final scope and site conditions.</p>")
+    html = """
+    <style>
+      body { font-family: Arial, Helvetica, sans-serif; margin: 14mm; color:#0b0c0c; }
+      table { border-collapse: collapse; width: 100%; margin: .5rem 0 1rem; }
+      th, td { border: 1px solid #b1b4b6; padding: .5rem .6rem; text-align: left; }
+      thead th { background: #f3f2f1; font-weight: 700; }
+      tr.grand td { font-weight: 800; border-top: 3px double #0b0c0c; }
+      td.neg { color: #D4351C; }
+      .muted { color:#6f777b; }
+    </style>
+    """ + "\n".join(parts)
+    b = BytesIO(html.encode("utf-8")); b.seek(0); return b
 
 # -----------------------------
 # Base inputs (main area)
@@ -249,13 +216,16 @@ def export_html(host_df: pd.DataFrame | None, prod_df: pd.DataFrame | None, titl
 prisons_sorted = ["Select"] + sorted(PRISON_TO_REGION.keys())
 prison_choice = st.selectbox("Prison Name", prisons_sorted, index=0, key="prison_choice")
 region = PRISON_TO_REGION.get(prison_choice, "Select") if prison_choice != "Select" else "Select"
-st.text_input("Region", value=("" if region == "Select" else region), disabled=True, key="region")
+# Always show current region text (no sticky key here so it updates every run)
+region_text = "" if region == "Select" else region
+st.text_input("Region", value=region_text, disabled=True)
+st.session_state["region_text"] = region_text  # for exports
 
 customer_type = st.selectbox("I want to quote for", ["Select", "Commercial", "Another Government Department"], key="customer_type")
 customer_name = st.text_input("Customer Name", key="customer_name")
 workshop_mode = st.selectbox("Contract type?", ["Select", "Host", "Production"], key="workshop_mode")
 
-# Workshop size mapping per request (Small=500, Medium=2,500, Large=5,000)
+# Workshop size mapping (Small=500, Medium=2,500, Large=5,000; or custom)
 SIZE_LABELS = ["Select", "Small (500 ft²)", "Medium (2,500 ft²)", "Large (5,000 ft²)", "Enter dimensions in ft"]
 SIZE_MAP = {"Small (500 ft²)": 500, "Medium (2,500 ft²)": 2500, "Large (5,000 ft²)": 5000}
 
@@ -270,7 +240,7 @@ area_m2 = area_ft2 * FT2_TO_M2 if area_ft2 else 0.0
 if area_ft2:
     st.markdown(f"Calculated area: **{area_ft2:,.0f} ft²** · **{area_m2:,.0f} m²**")
 
-# Usage band with '?' explainer (BEFORE sidebar so we can apply tariff defaults first)
+# Usage band with '?' explainer
 tariff_cols = st.columns([1, 0.1])
 with tariff_cols[0]:
     workshop_usage = st.radio(
@@ -278,89 +248,72 @@ with tariff_cols[0]:
         ["Low usage", "Medium usage", "High usage"],
         horizontal=True,
         key="workshop_usage",
-        help="Pick the workshop energy intensity used for costs."
+        help=("Use intensity profiles used in UK non‑domestic benchmarking (e.g. DEC/TM46) — "
+              "pick the band matching your process intensity & hours."),
     )
 with tariff_cols[1]:
     if st.button("?", key="usage_help_btn"):
         st.session_state["show_usage_help"] = not st.session_state.get("show_usage_help", False)
 if st.session_state.get("show_usage_help", False):
     st.info(
-        "• **Low usage**: lighting, water and heating.\n"
-        "• **Medium usage**: between low and high.\n"
-        "• **High usage**: lighting, water, heating and machinery operating."
-    )
+        "• **Low**: storage/basic workshop — lighting, small power, space heating only (limited machinery). "
+        "• **Medium**: light industrial — small machinery, some MEV/plug loads, longer hours. "
+        "• **High**: manufacturing/process — powered machinery/compressed air, extended shifts.\n"
+        "(Based on UK DEC/CIBSE TM46 approaches to non‑domestic energy profiling.)"
+    )  # [3](https://www.gov.uk/government/publications/display-energy-certificates-and-advisory-reports-for-public-buildings/a-guide-to-display-energy-certificates-and-advisory-reports-for-public-buildings)[2](https://www.cibse.org/knowledge-research/knowledge-portal/tm46-energy-benchmarks)
+
 USAGE_KEY = ("low" if "Low" in workshop_usage else "medium" if "Medium" in workshop_usage else "high")
 
 # -----------------------------
-# Tariff application (apply BEFORE rendering sidebar widgets to avoid StreamlitAPIException)
+# Tariff application (to state) BEFORE sidebar is drawn
 # -----------------------------
-# Ensure keys exist
 for k, v in {
-    "electricity_rate": None, "gas_rate": None, "water_rate": None,
-    "admin_monthly": None, "maint_rate_per_m2_y": None, "last_applied_band": None,
-    "maint_method": "£/m² per year (industry standard)"
+    "elec_unit": None, "elec_daily": None, "gas_unit": None, "gas_daily": None,
+    "water_unit": None, "admin_monthly": None, "maint_rate_per_m2_y": None, "last_band": None
 }.items():
     st.session_state.setdefault(k, v)
 
-# Apply tariff defaults on first run or when band changes (BEFORE widgets are created)
-needs_seed = any(st.session_state[k] is None for k in [
-    "electricity_rate", "gas_rate", "water_rate", "admin_monthly", "maint_rate_per_m2_y"
-])
-if st.session_state["last_applied_band"] != USAGE_KEY or needs_seed:
+needs_seed = any(st.session_state[k] is None for k in
+                 ["elec_unit", "elec_daily", "gas_unit", "gas_daily", "water_unit", "admin_monthly", "maint_rate_per_m2_y"])
+if st.session_state["last_band"] != USAGE_KEY or needs_seed:
     band = TARIFF_BANDS[USAGE_KEY]
     st.session_state.update({
-        "electricity_rate": band["rates"]["elec_unit"],
-        "gas_rate":         band["rates"]["gas_unit"],
-        "water_rate":       band["rates"]["water_unit"],
-        "admin_monthly":    band["rates"]["admin_monthly"],
+        "elec_unit": band["rates"]["elec_unit"],
+        "elec_daily": band["rates"]["elec_daily"],
+        "gas_unit":  band["rates"]["gas_unit"],
+        "gas_daily": band["rates"]["gas_daily"],
+        "water_unit": band["rates"]["water_unit"],
+        "admin_monthly": band["rates"]["admin_monthly"],
         "maint_rate_per_m2_y": band["intensity_per_year"]["maint_gbp_per_m2"],
-        "last_applied_band": USAGE_KEY,
+        "last_band": USAGE_KEY,
     })
-    # No st.rerun() needed; widgets below will read updated state this run.
 
 # -----------------------------
-# Cost functions (read tariff via session_state + USAGE_KEY)
+# Cost functions (use state + area/headcount)
 # -----------------------------
 def monthly_energy_costs() -> tuple[float, float]:
-    """
-    Electricity & Gas per month including daily charges.
-    - Variable element: intensity (kWh/m²/yr) × area × unit rate / 12
-    - Fixed element: supplier daily charge × ~30.42 days
-    """
-    band = TARIFF_BANDS[USAGE_KEY]
-    elec_kwh_y = band["intensity_per_year"]["elec_kwh_per_m2"] * (area_m2 or 0.0)
-    gas_kwh_y  = band["intensity_per_year"]["gas_kwh_per_m2"]  * (area_m2 or 0.0)
-    elec_m = (elec_kwh_y / 12.0) * st.session_state["electricity_rate"] + band["rates"]["elec_daily"] * DAYS_PER_MONTH
-    gas_m  = (gas_kwh_y  / 12.0) * st.session_state["gas_rate"]         + band["rates"]["gas_daily"]  * DAYS_PER_MONTH
+    elec_kwh_y = TARIFF_BANDS[USAGE_KEY]["intensity_per_year"]["elec_kwh_per_m2"] * (area_m2 or 0.0)
+    gas_kwh_y  = TARIFF_BANDS[USAGE_KEY]["intensity_per_year"]["gas_kwh_per_m2"]  * (area_m2 or 0.0)
+    elec_m = (elec_kwh_y / 12.0) * st.session_state["elec_unit"] + st.session_state["elec_daily"] * DAYS_PER_MONTH
+    gas_m  = (gas_kwh_y  / 12.0) * st.session_state["gas_unit"]  + st.session_state["gas_daily"] * DAYS_PER_MONTH
     return elec_m, gas_m
 
-
 def monthly_water_costs() -> float:
-    """
-    Water per month using 15 m³ per employee per year (from tariff),
-    Employees = prisoners + instructors (unless customer provides instructors).
-    """
-    band = TARIFF_BANDS[USAGE_KEY]
     persons = st.session_state.get("num_prisoners", 0) + (0 if st.session_state.get("customer_covers_supervisors", False) else st.session_state.get("num_supervisors", 0))
-    m3_per_year = persons * band["intensity_per_year"]["water_m3_per_employee"]
-    return (m3_per_year / 12.0) * st.session_state["water_rate"]
-
+    m3_per_year = persons * TARIFF_BANDS[USAGE_KEY]["intensity_per_year"]["water_m3_per_employee"]
+    return (m3_per_year / 12.0) * st.session_state["water_unit"]
 
 def weekly_overheads_total() -> tuple[float, dict]:
-    """
-    Returns (weekly_overheads_cost, detail_dict) where detail has monthly components.
-    """
-    # Maintenance
-    if st.session_state.get("maint_method", "£/m² per year").startswith("£/m² per year"):
+    # Maintenance — by default tariff £/m²/yr unless user chose a fixed amount/% (set below)
+    maint_method = st.session_state.get("maint_method", "£/m² per year (industry standard)")
+    if maint_method.startswith("£/m² per year"):
         rate = st.session_state.get("maint_rate_per_m2_y", TARIFF_BANDS[USAGE_KEY]["intensity_per_year"]["maint_gbp_per_m2"])
         maint_m = (rate * (area_m2 or 0.0)) / 12.0
     else:
         maint_m = st.session_state.get("maint_monthly", 0.0)
 
-    # Energy & water
     elec_m, gas_m = monthly_energy_costs()
     water_m = monthly_water_costs()
-
     admin_m = st.session_state.get("admin_monthly", 150.0)
 
     overheads_m = elec_m + gas_m + water_m + admin_m + maint_m
@@ -375,78 +328,23 @@ def weekly_overheads_total() -> tuple[float, dict]:
     return weekly, detail
 
 # -----------------------------
-# Sidebar — Tariffs & Overheads (widgets after defaults applied)
+# Sidebar — Tariff rates only (READ‑ONLY)
 # -----------------------------
 with st.sidebar:
-    st.header("Tariffs & Overheads")
+    st.header("Tariffs (read‑only)")
 
-    # The number_inputs read values we set above in session_state
-    electricity_rate = st.number_input(
-        "Electricity tariff (£ per kWh)",
-        min_value=0.0, step=0.0001, format="%.4f",
-        key="electricity_rate"
-    )
-    gas_rate = st.number_input(
-        "Gas tariff (£ per kWh)",
-        min_value=0.0, step=0.0001, format="%.4f",
-        key="gas_rate"
-    )
-    water_rate = st.number_input(
-        "Water tariff (£ per m³)",
-        min_value=0.0, step=0.10, format="%.2f",
-        key="water_rate"
-    )
+    # Two columns: Electricity & Gas, then Water / Maintenance / Admin
+    c1, c2 = st.columns(2)
+    with c1:
+        st.text_input("Electricity unit (₤/kWh)", f"£{st.session_state['elec_unit']:.4f}/kWh", disabled=True)
+        st.text_input("Gas unit (₤/kWh)",        f"£{st.session_state['gas_unit']:.4f}/kWh", disabled=True)
+        st.text_input("Water unit (₤/m³)",       f"£{st.session_state['water_unit']:.2f}/m³", disabled=True)
+    with c2:
+        st.text_input("Electricity daily (₤/day)", f"£{st.session_state['elec_daily']:.3f}/day", disabled=True)
+        st.text_input("Gas daily (₤/day)",         f"£{st.session_state['gas_daily']:.3f}/day", disabled=True)
+        st.text_input("Admin (₤/month)",           f"£{st.session_state['admin_monthly']:.2f}/month", disabled=True)
 
-    st.markdown("---")
-    st.markdown("**Maintenance / Depreciation**")
-
-    maint_method = st.radio(
-        "Method",
-        ["£/m² per year (industry standard)", "Set a fixed monthly amount", "% of reinstatement value"],
-        index=0 if st.session_state["maint_method"].startswith("£/m²") else
-              (1 if st.session_state["maint_method"] == "Set a fixed monthly amount" else 2),
-        key="maint_method"
-    )
-
-    if maint_method.startswith("£/m² per year"):
-        rate_per_m2_y = st.number_input(
-            "Maintenance rate (£/m²/year)",
-            min_value=0.0, step=0.5,
-            value=float(st.session_state["maint_rate_per_m2_y"]),
-            key="maint_rate_per_m2_y"
-        )
-        maint_monthly = 0.0
-    elif maint_method == "Set a fixed monthly amount":
-        maint_monthly = st.number_input(
-            "Maintenance", min_value=0.0, value=float(st.session_state.get("maint_monthly", 0.0)),
-            step=25.0, key="maint_monthly"
-        )
-    else:
-        reinstatement_value = st.number_input("Reinstatement value (£)", min_value=0.0, value=float(st.session_state.get("reinstate_val", 0.0)), step=10_000.0, key="reinstate_val")
-        percent = st.number_input("Annual % of reinstatement value", min_value=0.0, value=float(st.session_state.get("reinstate_pct", 2.0)), step=0.25, format="%.2f", key="reinstate_pct")
-        maint_monthly = (reinstatement_value * (percent / 100.0)) / 12.0
-        st.session_state["maint_monthly"] = maint_monthly
-
-    st.markdown("---")
-    admin_monthly = st.number_input("Administration", min_value=0.0, step=25.0, key="admin_monthly")
-
-    # Live monthly preview (uses current area & headcount)
-    elec_m_prev, gas_m_prev = monthly_energy_costs()
-    water_m_prev = monthly_water_costs()
-    if maint_method.startswith("£/m² per year"):
-        maintenance_m_prev = (st.session_state["maint_rate_per_m2_y"] * (area_m2 or 0.0)) / 12.0
-    else:
-        maintenance_m_prev = st.session_state.get("maint_monthly", maint_monthly or 0.0)
-    admin_m_prev = st.session_state["admin_monthly"]
-    total_overheads_m_prev = elec_m_prev + gas_m_prev + water_m_prev + maintenance_m_prev + admin_m_prev
-
-    st.markdown("**Tariff (per month)**")
-    st.write(f"Electricity: { _currency(elec_m_prev) }")
-    st.write(f"Gas: { _currency(gas_m_prev) }")
-    st.write(f"Water: { _currency(water_m_prev) }")
-    st.write(f"Maintenance/Depreciation: { _currency(maintenance_m_prev) }")
-    st.write(f"Admin: { _currency(admin_m_prev) }")
-    st.write(f"**Total Overheads: { _currency(total_overheads_m_prev) }**")
+    st.text_input("Maintenance (₤/m²/year)", f"£{st.session_state['maint_rate_per_m2_y']:.2f} per m²/year", disabled=True)
 
 # -----------------------------
 # Hours / staffing & instructors
@@ -473,7 +371,7 @@ if not customer_covers_supervisors:
             options = [t["title"] for t in titles_for_region]
             sel = st.selectbox(f"Instructor {i+1} title", options, key=f"inst_title_{i}")
             pay = next(t["avg_total"] for t in titles_for_region if t["title"] == sel)
-            st.caption(f"Avg Total for {region}: **£{pay:,.0f}** per year")
+            st.caption(f"Avg Total for {region_text or 'Region'}: **£{pay:,.0f}** per year")
             supervisor_salaries.append(float(pay))
 
 contracts = st.number_input("How many contracts do these instructors oversee?", min_value=1, value=1, key="contracts")
@@ -487,11 +385,7 @@ if chosen_pct < int(round(recommended_pct)):
     reason = st.text_area("Reason for using a lower allocation", key="alloc_reason")
     action = st.radio("Apply allocation", ["Keep recommended", "Set new"], index=0, horizontal=True, key="alloc_action")
     if action == "Set new":
-        if not str(reason).strip():
-            st.error("Please provide a brief explanation before setting a lower allocation.")
-            effective_pct = int(round(recommended_pct))
-        else:
-            effective_pct = int(chosen_pct)
+        effective_pct = int(round(recommended_pct)) if not str(reason).strip() else int(chosen_pct)
     else:
         effective_pct = int(round(recommended_pct))
 else:
@@ -500,11 +394,7 @@ else:
 # Employment support → development % of OVERHEADS (Commercial only)
 dev_rate = 0.0
 if customer_type == "Commercial":
-    support = st.selectbox(
-        "Customer employment support?",
-        ["Select", "None", "Employment on release/RoTL", "Post release", "Both"],
-        key="support",
-    )
+    support = st.selectbox("Customer employment support?", ["Select", "None", "Employment on release/RoTL", "Post release", "Both"], key="support")
     if support == "None":
         dev_rate = 0.20
     elif support in ["Employment on release/RoTL", "Post release"]:
@@ -575,14 +465,11 @@ def item_capacity_100(prisoners_assigned: int, minutes_per_item: float, prisoner
 
 def calculate_production_contractual(items, output_percents):
     overheads_weekly, _detail = weekly_overheads_total()
-
     inst_weekly_total = (
         sum((s / 52) * (effective_pct / 100) for s in supervisor_salaries)
-        if not st.session_state.get("customer_covers_supervisors", False) else 0.0
+        if not customer_covers_supervisors else 0.0
     )
-
     denom = sum(int(it.get("assigned", 0)) * workshop_hours * 60.0 for it in items)
-
     results = []
     for idx, item in enumerate(items):
         name = (item.get("name", "") or "").strip() or f"Item {idx+1}"
@@ -617,7 +504,6 @@ def calculate_production_contractual(items, output_percents):
             "Unit Cost (£)": unit_cost_base,
             "Unit Price ex VAT (£)": unit_price_ex_vat,
             "Unit Price inc VAT (£)": unit_price_inc_vat,
-            # Diagnostics (not exported by default)
             "Capacity @100% (units)": cap_100,
             "Weekly Cost (£)": weekly_cost_item,
             "Weekly: Prisoners (£)": prisoner_weekly_item,
@@ -625,7 +511,6 @@ def calculate_production_contractual(items, output_percents):
             "Weekly: Overheads (£)": overheads_weekly_item,
             "Share": share,
         })
-
     return results
 
 # -----------------------------
@@ -642,7 +527,6 @@ if workshop_mode == "Host":
             heading_name = customer_name if str(customer_name).strip() else "Customer"
             st.subheader(f"Host Contract for {heading_name} (costs are per month)")
 
-            # Build host breakdown (monthly)
             breakdown = {}
             breakdown["Prisoner wages"] = num_prisoners * prisoner_salary * (52 / 12)
 
@@ -658,26 +542,24 @@ if workshop_mode == "Host":
             breakdown["Water (estimated)"] = water_m
             breakdown["Administration"] = st.session_state.get("admin_monthly", 150.0)
 
-            if st.session_state.get("maint_method", "£/m² per year").startswith("£/m² per year"):
+            if st.session_state.get("maint_method", "£/m² per year (industry standard)").startswith("£/m² per year"):
                 rate = st.session_state.get("maint_rate_per_m2_y", TARIFF_BANDS[USAGE_KEY]["intensity_per_year"]["maint_gbp_per_m2"])
                 breakdown["Depreciation/Maintenance (estimated)"] = (rate * (area_m2 or 0.0)) / 12.0
             else:
                 breakdown["Depreciation/Maintenance (estimated)"] = st.session_state.get("maint_monthly", 0.0)
 
-            overheads_subtotal = (
-                breakdown.get("Electricity (estimated)", 0.0)
-                + breakdown.get("Gas (estimated)", 0.0)
-                + breakdown.get("Water (estimated)", 0.0)
-                + breakdown.get("Administration", 0.0)
-                + breakdown.get("Depreciation/Maintenance (estimated)", 0.0)
-            )
+            overheads_subtotal = sum([
+                breakdown.get("Electricity (estimated)", 0.0),
+                breakdown.get("Gas (estimated)", 0.0),
+                breakdown.get("Water (estimated)", 0.0),
+                breakdown.get("Administration", 0.0),
+                breakdown.get("Depreciation/Maintenance (estimated)", 0.0),
+            ])
 
-            # Development charge based on overheads (Commercial only)
             dev_baseline_rate = 0.20
             dev_baseline_amount = overheads_subtotal * dev_baseline_rate
             if customer_type == "Commercial":
-                dev_applied_rate = dev_rate
-                dev_applied_amount = overheads_subtotal * dev_applied_rate
+                dev_applied_amount = overheads_subtotal * dev_rate
                 reduction_amount = max(dev_baseline_amount - dev_applied_amount, 0.0)
                 breakdown["Development charge baseline (20% of overheads)"] = dev_baseline_amount
                 if reduction_amount > 0:
@@ -698,13 +580,9 @@ if workshop_mode == "Host":
             host_df = pd.DataFrame(rows, columns=["Item", "Amount (£)"])
             st.markdown(_render_host_df_to_html(host_df), unsafe_allow_html=True)
 
-            # Downloads
             st.download_button("Download CSV (Host)", data=export_csv_bytes(host_df), file_name="host_quote.csv", mime="text/csv")
-            st.download_button(
-                "Download PDF-ready HTML (Host)",
-                data=export_html(host_df, None, title="Host Quote"),
-                file_name="host_quote.html", mime="text/html"
-            )
+            st.download_button("Download PDF-ready HTML (Host)", data=export_html(host_df, None, title="Host Quote"),
+                               file_name="host_quote.html", mime="text/html")
 # -----------------------------
 # PRODUCTION branch
 # -----------------------------
@@ -713,15 +591,21 @@ elif workshop_mode == "Production":
 
     prod_type = st.radio(
         "Do you want ad-hoc costs with a deadline, or contractual work?",
-        ["Contractual work", "Ad-hoc costs (single item) with a deadline"],
+        ["Contractual work", "Ad-hoc costs (multiple lines) with deadlines"],
         index=0,
-        help="Contractual work = ongoing weekly production. Ad‑hoc = a one‑off job with a delivery deadline.",
+        help=(
+            "Contractual work = ongoing weekly production (items and unit prices per week). "
+            "Ad‑hoc = one‑off job(s) with delivery deadlines; calculator estimates if extra prisoners are needed."
+        ),
         key="prod_type"
     )
 
-    # A) CONTRACTUAL WORK
+    # A) CONTRACTUAL WORK (unchanged model: labour-minutes apportionment)
     if prod_type == "Contractual work":
-        st.caption("Apportionment method: Labour minutes — overheads & instructor time are shared by assigned labour minutes (assigned prisoners × weekly hours × 60).")
+        st.caption(
+            "Apportionment method: Labour minutes — overheads & instructor time are shared by "
+            "assigned labour minutes (assigned prisoners × weekly hours × 60)."
+        )
         budget_minutes = labour_minutes_budget(num_prisoners, workshop_hours)
         st.markdown(f"As per your selected resources you have **{budget_minutes:,.0f} Labour minutes** available this week.")
 
@@ -729,7 +613,8 @@ elif workshop_mode == "Production":
         items = []
         OUTPUT_PCT_HELP = (
             "How much of the item’s theoretical weekly capacity you plan to use this week. "
-            "100% assumes assigned prisoners and weekly hours are fully available; reduce to account for ramp‑up, changeovers, downtime, etc."
+            "100% assumes assigned prisoners and weekly hours are fully available; reduce to account for "
+            "ramp‑up, changeovers, downtime, etc."
         )
 
         for i in range(int(num_items)):
@@ -743,7 +628,8 @@ elif workshop_mode == "Production":
                     f"How many minutes to make 1 item ({display_name})", min_value=1.0, value=10.0, format="%.2f", key=f"mins_{i}"
                 )
                 prisoners_assigned = st.number_input(
-                    f"How many prisoners work solely on this item ({display_name})", min_value=0, max_value=int(num_prisoners), value=0, step=1, key=f"assigned_{i}"
+                    f"How many prisoners work solely on this item ({display_name})",
+                    min_value=0, max_value=int(num_prisoners), value=0, step=1, key=f"assigned_{i}"
                 )
                 cap_preview = item_capacity_100(prisoners_assigned, minutes_per_item, prisoners_required, workshop_hours)
                 st.markdown(f"{display_name} capacity @ 100%: **{cap_preview:.0f} units/week**")
@@ -784,45 +670,75 @@ elif workshop_mode == "Production":
                 st.download_button("Download PDF-ready HTML (Production)", data=export_html(None, prod_df, title="Production Quote"),
                                    file_name="production_quote.html", mime="text/html")
 
-    # B) AD-HOC COSTS (single item) with deadline
+    # B) AD‑HOC COSTS (MULTI‑LINE) with per-line deadlines
     else:
-        st.caption("Provide item details and a delivery deadline. The calculator shows if extra prisoners are needed and the total job price (with unit price).")
+        st.caption(
+            "Enter how many **product lines** you need. For each line, provide the item name, total units requested, "
+            "deadline, number of prisoners to make **one** unit, and minutes to make **one** unit. "
+            "The calculator will estimate if additional prisoners are required to meet the deadlines."
+        )
 
-        adhoc_name = st.text_input("Item Name (ad‑hoc)", key="adhoc_name")
-        minutes_per_item = st.number_input("Minutes to make 1 item", min_value=1.0, value=10.0, format="%.2f", key="adhoc_minutes")
-        prisoners_required_per_item = st.number_input("Prisoners required to make 1 item", min_value=1, value=1, step=1, key="adhoc_required")
-        units_needed = st.number_input("How many units are needed (total)?", min_value=1, step=1, value=100, key="adhoc_units")
-        deadline = st.date_input("What is your deadline?", value=date.today(), key="adhoc_deadline")
+        num_lines = st.number_input("How many product lines are needed?", min_value=1, value=1, step=1, key="adhoc_num_lines")
 
-        if st.button("Calculate Ad‑hoc Cost"):
+        lines = []
+        for i in range(int(num_lines)):
+            with st.expander(f"Line {i+1}", expanded=(i == 0)):
+                item_name = st.text_input(f"Item name (Line {i+1})", key=f"adhoc_name_{i}")
+                units_requested = st.number_input(f"Units requested (Line {i+1})", min_value=1, value=100, step=1, key=f"adhoc_units_{i}")
+                deadline = st.date_input(f"Deadline (Line {i+1})", value=date.today(), key=f"adhoc_deadline_{i}")
+                pris_per_item = st.number_input(f"Prisoners to make one (Line {i+1})", min_value=1, value=1, step=1, key=f"adhoc_pris_req_{i}")
+                minutes_per_item = st.number_input(f"Minutes to make one (Line {i+1})", min_value=1.0, value=10.0, format="%.2f", key=f"adhoc_mins_{i}")
+                lines.append({
+                    "name": (item_name.strip() or f"Line {i+1}") if isinstance(item_name, str) else f"Line {i+1}",
+                    "units": int(units_requested),
+                    "deadline": deadline,
+                    "pris_per_item": int(pris_per_item),
+                    "mins_per_item": float(minutes_per_item),
+                })
+
+        if st.button("Calculate Ad‑hoc Cost", key="calc_adhoc"):
             local_errors = list(errors)
-            display_name = (adhoc_name.strip() or "Item")
-            if minutes_per_item <= 0:
-                local_errors.append("Minutes per item must be > 0")
-            if prisoners_required_per_item <= 0:
-                local_errors.append("Prisoners required per item must be > 0")
-            if units_needed <= 0:
-                local_errors.append("Units needed must be > 0")
-            days_to_deadline = (deadline - date.today()).days
-            weeks_to_deadline = max(1, math.ceil(days_to_deadline / 7)) if days_to_deadline is not None else 1
             if workshop_hours <= 0:
                 local_errors.append("Hours per week must be > 0 for Ad‑hoc")
             if num_prisoners < 0:
                 local_errors.append("Prisoners employed cannot be negative")
             if prisoner_salary < 0:
                 local_errors.append("Prisoner weekly salary cannot be negative")
+            for i, ln in enumerate(lines):
+                if ln["units"] <= 0:
+                    local_errors.append(f"Line {i+1}: Units requested must be > 0")
+                if ln["pris_per_item"] <= 0:
+                    local_errors.append(f"Line {i+1}: Prisoners to make one must be > 0")
+                if ln["mins_per_item"] <= 0:
+                    local_errors.append(f"Line {i+1}: Minutes to make one must be > 0")
 
             if local_errors:
                 st.error("Fix errors:\n- " + "\n- ".join(local_errors))
             else:
-                required_minutes_total = units_needed * minutes_per_item * prisoners_required_per_item
-                available_minutes_total_current = num_prisoners * workshop_hours * 60.0 * weeks_to_deadline
-                deficit_minutes = max(0.0, required_minutes_total - available_minutes_total_current)
-                denom = workshop_hours * 60.0 * weeks_to_deadline
-                additional_prisoners = int(math.ceil(deficit_minutes / denom)) if denom > 0 else 0
+                # Per-line weeks to deadline, total minutes, and weekly demand
+                weeks_each = []
+                total_minutes_all = 0.0
+                weekly_minutes_demand = 0.0
+                for ln in lines:
+                    days_to_deadline = (ln["deadline"] - date.today()).days
+                    weeks_i = max(1, math.ceil(days_to_deadline / 7)) if days_to_deadline is not None else 1
+                    weeks_each.append(weeks_i)
+                    minutes_total_line = ln["units"] * ln["mins_per_item"] * ln["pris_per_item"]
+                    total_minutes_all += minutes_total_line
+                    weekly_minutes_demand += minutes_total_line / weeks_i
+
+                # Current weekly capacity (prisoners only)
+                weekly_minutes_capacity = num_prisoners * workshop_hours * 60.0
+                deficit_weekly = max(0.0, weekly_minutes_demand - weekly_minutes_capacity)
+                denom_per_prisoner_week = workshop_hours * 60.0
+                additional_prisoners = int(math.ceil(deficit_weekly / denom_per_prisoner_week)) if denom_per_prisoner_week > 0 else 0
                 additional_prisoners = max(0, additional_prisoners)
                 assigned_total = num_prisoners + additional_prisoners
 
+                # Job duration to cost for: conservative = max weeks across lines
+                job_weeks = max(weeks_each) if weeks_each else 1
+
+                # Weekly costs
                 overheads_weekly, _detail = weekly_overheads_total()
                 inst_weekly_total = (
                     sum((s / 52) * (effective_pct / 100) for s in supervisor_salaries)
@@ -831,22 +747,34 @@ elif workshop_mode == "Production":
                 prisoners_weekly_cost = assigned_total * prisoner_salary
                 weekly_cost_total = prisoners_weekly_cost + inst_weekly_total + overheads_weekly
 
-                job_cost_ex_vat = weekly_cost_total * weeks_to_deadline
+                # Job totals
+                job_cost_ex_vat = weekly_cost_total * job_weeks
                 vat_amount = (job_cost_ex_vat * (vat_rate / 100.0)) if (customer_type == "Commercial" and apply_vat) else 0.0
                 job_cost_inc_vat = job_cost_ex_vat + vat_amount
 
-                unit_price_ex_vat = (job_cost_ex_vat / units_needed) if units_needed > 0 else None
-                unit_price_inc_vat = (job_cost_inc_vat / units_needed) if (units_needed > 0 and (customer_type == "Commercial" and apply_vat)) else None
-
-                # Plain sentence (no banner)
+                # Output narrative
                 if additional_prisoners > 0:
-                    st.write(f"To produce {units_needed:,} by {deadline.isoformat()} we need to employ {additional_prisoners} additional prisoner(s).")
+                    st.write(
+                        f"To meet all deadlines (max **{job_weeks}** week{'s' if job_weeks>1 else ''}) "
+                        f"we need to employ **{additional_prisoners}** additional prisoner(s)."
+                    )
                 else:
-                    st.write(f"To produce {units_needed:,} by {deadline.isoformat()} your current staffing is sufficient (no additional prisoners required).")
+                    st.write(
+                        f"Your current staffing is sufficient to meet all deadlines "
+                        f"(max **{job_weeks}** week{'s' if job_weeks>1 else ''})."
+                    )
 
-                # Two-column rows
+                # Per-line summary table (non-monetary)
+                summary_rows = [("Total minutes (all lines)", total_minutes_all, True, False)]
+                for i, ln in enumerate(lines):
+                    summary_rows.append((f"Line {i+1}: {ln['name']} — Units", ln["units"], False, False))
+                    summary_rows.append((f"Line {i+1}: Deadline (weeks)", weeks_each[i], False, False))
+                    summary_rows.append((f"Line {i+1}: Minutes/Unit × Prisoners", ln["mins_per_item"] * ln["pris_per_item"], False, False))
+                st.markdown(_render_table_two_col(summary_rows, amount_header="Value"), unsafe_allow_html=True)
+
+                # Monetary summary table
                 adhoc_rows = [
-                    ("Weeks to deadline", weeks_to_deadline, False, False),
+                    ("Weeks to complete (max across lines)", job_weeks, False, False),
                     ("Weekly: Prisoners", prisoners_weekly_cost, True, False),
                     ("Weekly: Instructors (100%)", inst_weekly_total, True, False),
                     ("Weekly: Overheads (100%)", overheads_weekly, True, False),
@@ -856,19 +784,18 @@ elif workshop_mode == "Production":
                 if customer_type == "Commercial" and apply_vat:
                     adhoc_rows.append((f"VAT ({vat_rate:.1f}%)", vat_amount, True, False))
                     adhoc_rows.append(("Total Job Cost (inc VAT)", job_cost_inc_vat, True, True))
-                    adhoc_rows.append(("Unit Price inc VAT", unit_price_inc_vat, True, False))
                 else:
                     adhoc_rows.append(("Total Job Cost", job_cost_ex_vat, True, True))
-                    adhoc_rows.append(("Unit Price ex VAT", unit_price_ex_vat, True, False))
 
                 st.markdown(_render_table_two_col(adhoc_rows), unsafe_allow_html=True)
 
-                export_rows = [(lbl, val) for (lbl, val, *_rest) in adhoc_rows]
+                # Export (CSV/HTML)
+                export_rows = [(lbl, val if isinstance(val, (int, float)) else str(val)) for (lbl, val, *_rest) in adhoc_rows]
                 adhoc_export_df = pd.DataFrame(export_rows, columns=["Item", "Amount (£)"])
                 st.download_button("Download CSV (Ad‑hoc)", data=export_csv_bytes(adhoc_export_df),
                                    file_name="adhoc_quote.csv", mime="text/csv")
                 st.download_button("Download PDF-ready HTML (Ad‑hoc)",
-                                   data=export_html(None, adhoc_export_df, title=f"Ad‑hoc Quote — {display_name}"),
+                                   data=export_html(None, adhoc_export_df, title="Ad‑hoc Quote — Multiple Lines"),
                                    file_name="adhoc_quote.html", mime="text/html")
 
 # -----------------------------
@@ -883,3 +810,4 @@ if st.button("Reset Selections", key="reset_app_footer"):
     except Exception:
         st.experimental_rerun()
 st.markdown('\n', unsafe_allow_html=True)
+
