@@ -10,6 +10,8 @@ import math
 import pandas as pd
 import streamlit as st
 
+# import streamlit as st
+
 # -----------------------------
 # Page config & GOV.UK styling (CENTERED + wider/neutral sidebar)
 # -----------------------------
@@ -17,7 +19,6 @@ st.set_page_config(
     page_title="Cost and Price Calculator",
     page_icon="💷",
     layout="centered"
-    
 )
 
 st.markdown(
@@ -47,7 +48,7 @@ st.markdown(
     td.neg { color: #D4351C; }
     .muted { color: #6f777b; }
 
-    /* ✅ Paint the ENTIRE sidebar panel a neutral grey & make it tall */
+    /* ✅ Sidebar styling */
     [data-testid="stSidebar"] {
       background-color: #f3f2f1 !important;   /* neutral GOV.UK grey */
       min-height: 100vh;                       /* fill full height */
@@ -72,6 +73,19 @@ st.markdown(
       background: #f3f2f1; border-left: 6px solid #b1b4b6;
       padding: 8px 10px; margin-bottom: 6px; font-weight: 700;
     }
+
+    /* 🔒 Fully hide sidebar when collapsed */
+    section[data-testid="stSidebar"][aria-expanded="false"] {
+      width: 0 !important;
+      min-width: 0 !important;
+      max-width: 0 !important;
+    }
+
+    /* 📐 Keep main app centered regardless of sidebar */
+    div[data-testid="stAppViewContainer"] {
+      margin-left: auto !important;
+      margin-right: auto !important;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -79,6 +93,13 @@ st.markdown(
 
 st.markdown("## Cost and Price Calculator\n")
 
+# Example app body
+st.write("This is the main page content, centered even when the sidebar is open/closed.")
+
+with st.sidebar:
+    st.header("Wide Sidebar")
+    st.write("Your GOV.UK-styled controls go here.")
+    st.button("Run calculation")
 # -----------------------------
 # Constants
 # -----------------------------
