@@ -1,5 +1,5 @@
 # code.py — Cost and Price Calculator (Streamlit)
-# Implements Low/Medium/High workshop tariff bands from Tariff C&P.xlsx
+# Tariff C&P integration: Low/Medium/High usage bands drive ALL energy/water/admin/maintenance costs.
 # Author: M365 Copilot for Dan Smith — 2025-09-26
 
 from __future__ import annotations
@@ -11,7 +11,7 @@ import pandas as pd
 import streamlit as st
 
 # -----------------------------
-# Page config & minimal GOV.UK styling
+# Page config & light GOV.UK styling
 # -----------------------------
 st.set_page_config(
     page_title="Cost and Price Calculator",
@@ -28,33 +28,29 @@ GOV_YELLOW = "#FFDD00"
 st.markdown(
     f"""
     <style>
-    html, body, [class*="css"]  {{ font-family: system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Ubuntu, Cantarell, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif; }}
-
-    /* Buttons: GOV.UK green */
-    .stButton>button {{
-        background: {GOV_GREEN};
-        color: white;
-        border: 2px solid {GOV_GREEN_DARK};
-        border-radius: 4px; padding: .45rem 1rem; font-weight: 600;
+    html, body, [class*="css"] {{
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Ubuntu, Cantarell, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
     }}
-    .stButton>button:focus {{ outline: 3px solid {GOV_YELLOW}; outline-offset: 2px; }}
-
-    /* Tables */
+    .stButton>button {{
+      background: {GOV_GREEN}; color: #fff; border: 2px solid {GOV_GREEN_DARK};
+      border-radius: 4px; padding: .45rem 1rem; font-weight: 600;
+    }}
+    .stButton>button:focus {{ outline: 3px solid {GOV_YELLOW}; }}
     table {{ border-collapse: collapse; width: 100%; margin: .5rem 0 1rem; }}
     th, td {{ border: 1px solid #b1b4b6; padding: .5rem .6rem; text-align: left; }}
     thead th {{ background: #f3f2f1; font-weight: 700; }}
     tr.grand td {{ font-weight: 800; border-top: 3px double #0b0c0c; }}
     td.neg {{ color: {GOV_RED}; }}
+    .muted {{ color: #6f777b; }}
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-st.markdown("\n\n## Cost and Price Calculator\n")
-
+st.markdown("## Cost and Price Calculator\n")
 
 # -----------------------------
-# Prison → Region map (unchanged list from your app)
+# Prison → Region map (unchanged)
 # -----------------------------
 PRISON_TO_REGION = {
     "Altcourse": "National", "Ashfield": "National", "Askham Grange": "National", "Aylesbury": "National",
@@ -91,7 +87,7 @@ PRISON_TO_REGION = {
     "Wymott": "National",
 }
 
-# Instructor Avg Totals by Region & Title (display uses "Instructor")
+# Instructor pay (displayed as “Instructor”)
 SUPERVISOR_PAY = {
     "Inner London": [
         {"title": "Production Instructor: Band 3", "avg_total": 49203},
@@ -108,17 +104,15 @@ SUPERVISOR_PAY = {
 }
 
 # -----------------------------
-# TARIFF from Tariff C&P.xlsx (Sheet: "Tariff")
+# Tariff bands (from Tariff C&P.xlsx — Sheet "Tariff")
 # -----------------------------
 TARIFF_BANDS = {
     "low": {
-        "intensity_per_year": {      # usage intensities
-            "elec_kwh_per_m2": 65,
-            "gas_kwh_per_m2": 80,
-            "water_m3_per_employee": 15,
-            "maint_gbp_per_m2": 8,
+        "intensity_per_year": {
+            "elec_kwh_per_m2": 65, "gas_kwh_per_m2": 80,
+            "water_m3_per_employee": 15, "maint_gbp_per_m2": 8,
         },
-        "rates": {                   # unit/daily charges and admin
+        "rates": {
             "elec_unit": 0.2597, "elec_daily": 0.487,   # £/kWh, £/day
             "gas_unit": 0.0629,  "gas_daily": 0.3403,   # £/kWh, £/day
             "water_unit": 1.30,                          # £/m³
@@ -127,10 +121,8 @@ TARIFF_BANDS = {
     },
     "medium": {
         "intensity_per_year": {
-            "elec_kwh_per_m2": 110,
-            "gas_kwh_per_m2": 120,
-            "water_m3_per_employee": 15,
-            "maint_gbp_per_m2": 12,
+            "elec_kwh_per_m2": 110, "gas_kwh_per_m2": 120,
+            "water_m3_per_employee": 15, "maint_gbp_per_m2": 12,
         },
         "rates": {
             "elec_unit": 0.2597, "elec_daily": 0.487,
@@ -141,10 +133,8 @@ TARIFF_BANDS = {
     },
     "high": {
         "intensity_per_year": {
-            "elec_kwh_per_m2": 160,
-            "gas_kwh_per_m2": 180,
-            "water_m3_per_employee": 15,
-            "maint_gbp_per_m2": 15,
+            "elec_kwh_per_m2": 160, "gas_kwh_per_m2": 180,
+            "water_m3_per_employee": 15, "maint_gbp_per_m2": 15,
         },
         "rates": {
             "elec_unit": 0.2597, "elec_daily": 0.487,
@@ -155,9 +145,8 @@ TARIFF_BANDS = {
     },
 }
 
-DAYS_PER_MONTH = 365.0 / 12.0  # ~30.42
+DAYS_PER_MONTH = 365.0 / 12.0  # ≈30.42 days
 FT2_TO_M2 = 0.092903
-
 
 # -----------------------------
 # Helpers (render/exports)
@@ -254,87 +243,21 @@ def export_html(host_df: pd.DataFrame | None, prod_df: pd.DataFrame | None, titl
     b.seek(0)
     return b
 
-
-# -----------------------------
-# Size options (Small=500 ft², Medium=2,500 ft², Large=5,000 ft²)
-# -----------------------------
-SIZE_LABELS = [
-    "Select",
-    "Small (500 ft²)",
-    "Medium (2,500 ft²)",
-    "Large (5,000 ft²)",
-    "Enter dimensions in ft",
-]
-SIZE_MAP = {"Small (500 ft²)": 500, "Medium (2,500 ft²)": 2500, "Large (5,000 ft²)": 5000}
-
-
-# -----------------------------
-# Sidebar — Tariffs & Overheads (auto-populated from selected band)
-# -----------------------------
-with st.sidebar:
-    st.header("Tariffs & Overheads")
-
-    # Inputs with keys so we can programmatically set them
-    st.session_state.setdefault("electricity_rate", TARIFF_BANDS["low"]["rates"]["elec_unit"])
-    st.session_state.setdefault("gas_rate", TARIFF_BANDS["low"]["rates"]["gas_unit"])
-    st.session_state.setdefault("water_rate", TARIFF_BANDS["low"]["rates"]["water_unit"])
-    st.session_state.setdefault("admin_monthly", TARIFF_BANDS["low"]["rates"]["admin_monthly"])
-    st.session_state.setdefault("maint_rate_per_m2_y", TARIFF_BANDS["low"]["intensity_per_year"]["maint_gbp_per_m2"])
-
-    electricity_rate = st.number_input(
-        "Electricity tariff (£ per kWh)", min_value=0.0, value=float(st.session_state["electricity_rate"]),
-        step=0.001, format="%.4f", key="electricity_rate"
-    )
-    gas_rate = st.number_input(
-        "Gas tariff (£ per kWh)", min_value=0.0, value=float(st.session_state["gas_rate"]),
-        step=0.001, format="%.4f", key="gas_rate"
-    )
-    water_rate = st.number_input(
-        "Water tariff (£ per m³)", min_value=0.0, value=float(st.session_state["water_rate"]),
-        step=0.10, format="%.2f", key="water_rate"
-    )
-
-    st.markdown("---")
-    st.markdown("**Maintenance / Depreciation**")
-
-    maint_method = st.radio(
-        "Method",
-        ["£/m² per year (industry standard)", "Set a fixed monthly amount", "% of reinstatement value"],
-        index=0,
-        key="maint_method",
-    )
-
-    if maint_method.startswith("£/m² per year"):
-        rate_per_m2_y = st.number_input(
-            "Maintenance rate (£/m²/year)", min_value=0.0, value=float(st.session_state["maint_rate_per_m2_y"]),
-            step=0.5, key="maint_rate_per_m2_y"
-        )
-        maint_monthly = 0.0
-    elif maint_method == "Set a fixed monthly amount":
-        maint_monthly = st.number_input("Maintenance", min_value=0.0, value=0.0, step=25.0, key="maint_monthly")
-    else:
-        reinstatement_value = st.number_input("Reinstatement value (£)", min_value=0.0, value=0.0, step=10_000.0, key="reinstate_val")
-        percent = st.number_input("Annual % of reinstatement value", min_value=0.0, value=2.0, step=0.25, format="%.2f", key="reinstate_pct")
-        maint_monthly = (reinstatement_value * (percent / 100.0)) / 12.0
-        st.session_state["maint_monthly"] = maint_monthly
-
-    st.markdown("---")
-    admin_monthly = st.number_input("Administration", min_value=0.0, value=float(st.session_state["admin_monthly"]), step=25.0, key="admin_monthly")
-
-
 # -----------------------------
 # Base inputs (main area)
 # -----------------------------
 prisons_sorted = ["Select"] + sorted(PRISON_TO_REGION.keys())
 prison_choice = st.selectbox("Prison Name", prisons_sorted, index=0, key="prison_choice")
 region = PRISON_TO_REGION.get(prison_choice, "Select") if prison_choice != "Select" else "Select"
-st.session_state["region"] = region
-st.text_input("Region", value=("" if region == "Select" else region), disabled=True)
+st.text_input("Region", value=("" if region == "Select" else region), disabled=True, key="region")
 
 customer_type = st.selectbox("I want to quote for", ["Select", "Commercial", "Another Government Department"], key="customer_type")
 customer_name = st.text_input("Customer Name", key="customer_name")
-
 workshop_mode = st.selectbox("Contract type?", ["Select", "Host", "Production"], key="workshop_mode")
+
+# Workshop size mapping per request (Small=500, Medium=2,500, Large=5,000)
+SIZE_LABELS = ["Select", "Small (500 ft²)", "Medium (2,500 ft²)", "Large (5,000 ft²)", "Enter dimensions in ft"]
+SIZE_MAP = {"Small (500 ft²)": 500, "Medium (2,500 ft²)": 2500, "Large (5,000 ft²)": 5000}
 
 workshop_size = st.selectbox("Workshop size (sq ft)?", SIZE_LABELS, key="workshop_size")
 if workshop_size == "Enter dimensions in ft":
@@ -345,19 +268,19 @@ else:
     area_ft2 = SIZE_MAP.get(workshop_size, 0)
 area_m2 = area_ft2 * FT2_TO_M2 if area_ft2 else 0.0
 if area_ft2:
-    st.caption(f"Calculated area: **{area_ft2:,.0f} ft²** · **{area_m2:,.0f} m²**")
+    st.markdown(f"Calculated area: **{area_ft2:,.0f} ft²** · **{area_m2:,.0f} m²**")
 
-# Tariff usage band + '?' explainer
-c1, c2 = st.columns([1, 0.08])
-with c1:
+# Usage band with '?' explainer (BEFORE sidebar so we can apply tariff defaults first)
+tariff_cols = st.columns([1, 0.1])
+with tariff_cols[0]:
     workshop_usage = st.radio(
         "Workshop usage tariff",
         ["Low usage", "Medium usage", "High usage"],
         horizontal=True,
         key="workshop_usage",
-        help="Pick the workshop energy intensity used for costs.",
+        help="Pick the workshop energy intensity used for costs."
     )
-with c2:
+with tariff_cols[1]:
     if st.button("?", key="usage_help_btn"):
         st.session_state["show_usage_help"] = not st.session_state.get("show_usage_help", False)
 if st.session_state.get("show_usage_help", False):
@@ -366,35 +289,177 @@ if st.session_state.get("show_usage_help", False):
         "• **Medium usage**: between low and high.\n"
         "• **High usage**: lighting, water, heating and machinery operating."
     )
-
 USAGE_KEY = ("low" if "Low" in workshop_usage else "medium" if "Medium" in workshop_usage else "high")
 
-# Apply band defaults to sidebar when band changes
+# -----------------------------
+# Tariff application (apply BEFORE rendering sidebar widgets to avoid StreamlitAPIException)
+# -----------------------------
+# Ensure keys exist
+for k, v in {
+    "electricity_rate": None, "gas_rate": None, "water_rate": None,
+    "admin_monthly": None, "maint_rate_per_m2_y": None, "last_applied_band": None,
+    "maint_method": "£/m² per year (industry standard)"
+}.items():
+    st.session_state.setdefault(k, v)
+
+# Apply tariff defaults on first run or when band changes (BEFORE widgets are created)
+needs_seed = any(st.session_state[k] is None for k in [
+    "electricity_rate", "gas_rate", "water_rate", "admin_monthly", "maint_rate_per_m2_y"
+])
+if st.session_state["last_applied_band"] != USAGE_KEY or needs_seed:
+    band = TARIFF_BANDS[USAGE_KEY]
+    st.session_state.update({
+        "electricity_rate": band["rates"]["elec_unit"],
+        "gas_rate":         band["rates"]["gas_unit"],
+        "water_rate":       band["rates"]["water_unit"],
+        "admin_monthly":    band["rates"]["admin_monthly"],
+        "maint_rate_per_m2_y": band["intensity_per_year"]["maint_gbp_per_m2"],
+        "last_applied_band": USAGE_KEY,
+    })
+    # No st.rerun() needed; widgets below will read updated state this run.
+
+# -----------------------------
+# Cost functions (read tariff via session_state + USAGE_KEY)
+# -----------------------------
+def monthly_energy_costs() -> tuple[float, float]:
+    """
+    Electricity & Gas per month including daily charges.
+    - Variable element: intensity (kWh/m²/yr) × area × unit rate / 12
+    - Fixed element: supplier daily charge × ~30.42 days
+    """
+    band = TARIFF_BANDS[USAGE_KEY]
+    elec_kwh_y = band["intensity_per_year"]["elec_kwh_per_m2"] * (area_m2 or 0.0)
+    gas_kwh_y  = band["intensity_per_year"]["gas_kwh_per_m2"]  * (area_m2 or 0.0)
+    elec_m = (elec_kwh_y / 12.0) * st.session_state["electricity_rate"] + band["rates"]["elec_daily"] * DAYS_PER_MONTH
+    gas_m  = (gas_kwh_y  / 12.0) * st.session_state["gas_rate"]         + band["rates"]["gas_daily"]  * DAYS_PER_MONTH
+    return elec_m, gas_m
+
+
+def monthly_water_costs() -> float:
+    """
+    Water per month using 15 m³ per employee per year (from tariff),
+    Employees = prisoners + instructors (unless customer provides instructors).
+    """
+    band = TARIFF_BANDS[USAGE_KEY]
+    persons = st.session_state.get("num_prisoners", 0) + (0 if st.session_state.get("customer_covers_supervisors", False) else st.session_state.get("num_supervisors", 0))
+    m3_per_year = persons * band["intensity_per_year"]["water_m3_per_employee"]
+    return (m3_per_year / 12.0) * st.session_state["water_rate"]
+
+
+def weekly_overheads_total() -> tuple[float, dict]:
+    """
+    Returns (weekly_overheads_cost, detail_dict) where detail has monthly components.
+    """
+    # Maintenance
+    if st.session_state.get("maint_method", "£/m² per year").startswith("£/m² per year"):
+        rate = st.session_state.get("maint_rate_per_m2_y", TARIFF_BANDS[USAGE_KEY]["intensity_per_year"]["maint_gbp_per_m2"])
+        maint_m = (rate * (area_m2 or 0.0)) / 12.0
+    else:
+        maint_m = st.session_state.get("maint_monthly", 0.0)
+
+    # Energy & water
+    elec_m, gas_m = monthly_energy_costs()
+    water_m = monthly_water_costs()
+
+    admin_m = st.session_state.get("admin_monthly", 150.0)
+
+    overheads_m = elec_m + gas_m + water_m + admin_m + maint_m
+    detail = {
+        "Electricity (estimated)": elec_m,
+        "Gas (estimated)": gas_m,
+        "Water (estimated)": water_m,
+        "Administration": admin_m,
+        "Depreciation/Maintenance (estimated)": maint_m,
+    }
+    weekly = overheads_m * 12.0 / 52.0
+    return weekly, detail
+
+# -----------------------------
+# Sidebar — Tariffs & Overheads (widgets after defaults applied)
+# -----------------------------
 with st.sidebar:
-    def apply_tariff_to_sidebar(band_key: str):
-        band = TARIFF_BANDS[band_key]
-        st.session_state["electricity_rate"] = band["rates"]["elec_unit"]
-        st.session_state["gas_rate"] = band["rates"]["gas_unit"]
-        st.session_state["water_rate"] = band["rates"]["water_unit"]
-        st.session_state["admin_monthly"] = band["rates"]["admin_monthly"]
-        st.session_state["maint_rate_per_m2_y"] = band["intensity_per_year"]["maint_gbp_per_m2"]
-        st.session_state["last_applied_band"] = band_key
+    st.header("Tariffs & Overheads")
 
-    if st.session_state.get("last_applied_band") != USAGE_KEY:
-        apply_tariff_to_sidebar(USAGE_KEY)
+    # The number_inputs read values we set above in session_state
+    electricity_rate = st.number_input(
+        "Electricity tariff (£ per kWh)",
+        min_value=0.0, step=0.0001, format="%.4f",
+        key="electricity_rate"
+    )
+    gas_rate = st.number_input(
+        "Gas tariff (£ per kWh)",
+        min_value=0.0, step=0.0001, format="%.4f",
+        key="gas_rate"
+    )
+    water_rate = st.number_input(
+        "Water tariff (£ per m³)",
+        min_value=0.0, step=0.10, format="%.2f",
+        key="water_rate"
+    )
 
-# Hours and staffing
+    st.markdown("---")
+    st.markdown("**Maintenance / Depreciation**")
+
+    maint_method = st.radio(
+        "Method",
+        ["£/m² per year (industry standard)", "Set a fixed monthly amount", "% of reinstatement value"],
+        index=0 if st.session_state["maint_method"].startswith("£/m²") else
+              (1 if st.session_state["maint_method"] == "Set a fixed monthly amount" else 2),
+        key="maint_method"
+    )
+
+    if maint_method.startswith("£/m² per year"):
+        rate_per_m2_y = st.number_input(
+            "Maintenance rate (£/m²/year)",
+            min_value=0.0, step=0.5,
+            value=float(st.session_state["maint_rate_per_m2_y"]),
+            key="maint_rate_per_m2_y"
+        )
+        maint_monthly = 0.0
+    elif maint_method == "Set a fixed monthly amount":
+        maint_monthly = st.number_input(
+            "Maintenance", min_value=0.0, value=float(st.session_state.get("maint_monthly", 0.0)),
+            step=25.0, key="maint_monthly"
+        )
+    else:
+        reinstatement_value = st.number_input("Reinstatement value (£)", min_value=0.0, value=float(st.session_state.get("reinstate_val", 0.0)), step=10_000.0, key="reinstate_val")
+        percent = st.number_input("Annual % of reinstatement value", min_value=0.0, value=float(st.session_state.get("reinstate_pct", 2.0)), step=0.25, format="%.2f", key="reinstate_pct")
+        maint_monthly = (reinstatement_value * (percent / 100.0)) / 12.0
+        st.session_state["maint_monthly"] = maint_monthly
+
+    st.markdown("---")
+    admin_monthly = st.number_input("Administration", min_value=0.0, step=25.0, key="admin_monthly")
+
+    # Live monthly preview (uses current area & headcount)
+    elec_m_prev, gas_m_prev = monthly_energy_costs()
+    water_m_prev = monthly_water_costs()
+    if maint_method.startswith("£/m² per year"):
+        maintenance_m_prev = (st.session_state["maint_rate_per_m2_y"] * (area_m2 or 0.0)) / 12.0
+    else:
+        maintenance_m_prev = st.session_state.get("maint_monthly", maint_monthly or 0.0)
+    admin_m_prev = st.session_state["admin_monthly"]
+    total_overheads_m_prev = elec_m_prev + gas_m_prev + water_m_prev + maintenance_m_prev + admin_m_prev
+
+    st.markdown("**Tariff (per month)**")
+    st.write(f"Electricity: { _currency(elec_m_prev) }")
+    st.write(f"Gas: { _currency(gas_m_prev) }")
+    st.write(f"Water: { _currency(water_m_prev) }")
+    st.write(f"Maintenance/Depreciation: { _currency(maintenance_m_prev) }")
+    st.write(f"Admin: { _currency(admin_m_prev) }")
+    st.write(f"**Total Overheads: { _currency(total_overheads_m_prev) }**")
+
+# -----------------------------
+# Hours / staffing & instructors
+# -----------------------------
 workshop_hours = st.number_input(
     "How many hours per week is the workshop open?",
     min_value=0.0, format="%.2f",
     help="Affects production capacity and the recommended % share of instructor time for this contract.",
     key="workshop_hours",
 )
-
 num_prisoners = st.number_input("How many prisoners employed?", min_value=0, step=1, key="num_prisoners")
 prisoner_salary = st.number_input("Prisoner salary per week (£)", min_value=0.0, format="%.2f", key="prisoner_salary")
 
-# Instructors (formerly supervisors)
 num_supervisors = st.number_input("How many instructors?", min_value=0, step=1, key="num_supervisors")
 customer_covers_supervisors = st.checkbox("Customer provides instructor(s)?", key="customer_covers_supervisors")
 
@@ -411,11 +476,9 @@ if not customer_covers_supervisors:
             st.caption(f"Avg Total for {region}: **£{pay:,.0f}** per year")
             supervisor_salaries.append(float(pay))
 
-# Contracts & recommended allocation
 contracts = st.number_input("How many contracts do these instructors oversee?", min_value=1, value=1, key="contracts")
 recommended_pct = round((workshop_hours / 37.5) * (1 / contracts) * 100, 1) if contracts and workshop_hours >= 0 else 0
 
-# Instructor Time Allocation
 st.subheader("Instructor Time Allocation")
 st.info(f"Recommended: {recommended_pct}%")
 chosen_pct = st.slider("Adjust instructor % allocation", 0, 100, int(recommended_pct), key="chosen_pct")
@@ -499,86 +562,23 @@ def validate_inputs():
             errors.append("Instructor Avg Total must be > 0")
     return errors
 
-
-# -----------------------------
-# Tariff-driven monthly & weekly cost functions
-# -----------------------------
-def monthly_energy_costs():
-    """
-    Band-driven electricity & gas cost (£/month), including daily charges.
-    Uses the selected USAGE_KEY, current area_m2, and sidebar unit rates.
-    """
-    band = TARIFF_BANDS[USAGE_KEY]
-
-    # Energy intensities scale by area
-    elec_kwh_y = band["intensity_per_year"]["elec_kwh_per_m2"] * (area_m2 or 0.0)
-    gas_kwh_y  = band["intensity_per_year"]["gas_kwh_per_m2"]  * (area_m2 or 0.0)
-
-    elec_m = (elec_kwh_y / 12.0) * st.session_state["electricity_rate"] + band["rates"]["elec_daily"] * DAYS_PER_MONTH
-    gas_m  = (gas_kwh_y  / 12.0) * st.session_state["gas_rate"]         + band["rates"]["gas_daily"]  * DAYS_PER_MONTH
-    return elec_m, gas_m
-
-
-def monthly_water_costs():
-    """
-    Water cost (£/month) using spreadsheet intensity of 15 m³ per employee per year.
-    Employees = prisoners + instructors (unless customer provides instructors).
-    """
-    band = TARIFF_BANDS[USAGE_KEY]
-    persons = num_prisoners + (0 if customer_covers_supervisors else num_supervisors)
-    m3_per_year = persons * band["intensity_per_year"]["water_m3_per_employee"]
-    return (m3_per_year / 12.0) * st.session_state["water_rate"]
-
-
-def weekly_overheads_total():
-    """
-    Returns (weekly_overheads_cost, detail_dict)
-    where detail has Electricity, Gas, Water, Admin, Maintenance (all £/month).
-    """
-    # Maintenance
-    if st.session_state.get("maint_method", "£/m² per year").startswith("£/m² per year"):
-        rate = st.session_state.get("maint_rate_per_m2_y", TARIFF_BANDS[USAGE_KEY]["intensity_per_year"]["maint_gbp_per_m2"])
-        maint_m = (rate * (area_m2 or 0.0)) / 12.0
-    else:
-        maint_m = st.session_state.get("maint_monthly", 0.0)
-
-    # Energy & water
-    elec_m, gas_m = monthly_energy_costs()
-    water_m = monthly_water_costs()
-
-    admin_m = st.session_state.get("admin_monthly", 150.0)
-
-    overheads_m = elec_m + gas_m + water_m + admin_m + maint_m
-    detail = {
-        "Electricity (estimated)": elec_m,
-        "Gas (estimated)": gas_m,
-        "Water (estimated)": water_m,
-        "Administration": admin_m,
-        "Depreciation/Maintenance (estimated)": maint_m,
-    }
-    weekly = overheads_m * 12.0 / 52.0
-    return weekly, detail
-
-
 # -----------------------------
 # Production helpers & model (Contractual)
 # -----------------------------
 def labour_minutes_budget(num_pris: int, hours: float) -> float:
     return max(0.0, num_pris * hours * 60.0)
 
-
 def item_capacity_100(prisoners_assigned: int, minutes_per_item: float, prisoners_required: int, hours: float) -> float:
     if prisoners_assigned <= 0 or minutes_per_item <= 0 or prisoners_required <= 0 or hours <= 0:
         return 0.0
     return (prisoners_assigned * hours * 60.0) / (minutes_per_item * prisoners_required)
-
 
 def calculate_production_contractual(items, output_percents):
     overheads_weekly, _detail = weekly_overheads_total()
 
     inst_weekly_total = (
         sum((s / 52) * (effective_pct / 100) for s in supervisor_salaries)
-        if not customer_covers_supervisors else 0.0
+        if not st.session_state.get("customer_covers_supervisors", False) else 0.0
     )
 
     denom = sum(int(it.get("assigned", 0)) * workshop_hours * 60.0 for it in items)
@@ -628,7 +628,6 @@ def calculate_production_contractual(items, output_percents):
 
     return results
 
-
 # -----------------------------
 # Main UI branches
 # -----------------------------
@@ -658,6 +657,7 @@ if workshop_mode == "Host":
             breakdown["Gas (estimated)"] = gas_m
             breakdown["Water (estimated)"] = water_m
             breakdown["Administration"] = st.session_state.get("admin_monthly", 150.0)
+
             if st.session_state.get("maint_method", "£/m² per year").startswith("£/m² per year"):
                 rate = st.session_state.get("maint_rate_per_m2_y", TARIFF_BANDS[USAGE_KEY]["intensity_per_year"]["maint_gbp_per_m2"])
                 breakdown["Depreciation/Maintenance (estimated)"] = (rate * (area_m2 or 0.0)) / 12.0
@@ -672,6 +672,7 @@ if workshop_mode == "Host":
                 + breakdown.get("Depreciation/Maintenance (estimated)", 0.0)
             )
 
+            # Development charge based on overheads (Commercial only)
             dev_baseline_rate = 0.20
             dev_baseline_amount = overheads_subtotal * dev_baseline_rate
             if customer_type == "Commercial":
@@ -699,10 +700,14 @@ if workshop_mode == "Host":
 
             # Downloads
             st.download_button("Download CSV (Host)", data=export_csv_bytes(host_df), file_name="host_quote.csv", mime="text/csv")
-            st.download_button("Download PDF-ready HTML (Host)", data=export_html(host_df, None, title="Host Quote"),
-                               file_name="host_quote.html", mime="text/html")
-
+            st.download_button(
+                "Download PDF-ready HTML (Host)",
+                data=export_html(host_df, None, title="Host Quote"),
+                file_name="host_quote.html", mime="text/html"
+            )
+# -----------------------------
 # PRODUCTION branch
+# -----------------------------
 elif workshop_mode == "Production":
     st.subheader("Production Settings")
 
@@ -856,10 +861,8 @@ elif workshop_mode == "Production":
                     adhoc_rows.append(("Total Job Cost", job_cost_ex_vat, True, True))
                     adhoc_rows.append(("Unit Price ex VAT", unit_price_ex_vat, True, False))
 
-                # Render in-page (inherits CSS/font)
                 st.markdown(_render_table_two_col(adhoc_rows), unsafe_allow_html=True)
 
-                # Exports (two-column DataFrame for CSV/HTML)
                 export_rows = [(lbl, val) for (lbl, val, *_rest) in adhoc_rows]
                 adhoc_export_df = pd.DataFrame(export_rows, columns=["Item", "Amount (£)"])
                 st.download_button("Download CSV (Ad‑hoc)", data=export_csv_bytes(adhoc_export_df),
@@ -879,3 +882,4 @@ if st.button("Reset Selections", key="reset_app_footer"):
         st.rerun()
     except Exception:
         st.experimental_rerun()
+st.markdown('\n', unsafe_allow_html=True)
