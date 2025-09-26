@@ -49,7 +49,7 @@ st.markdown(
   min-width: 420px; max-width: 480px;
   padding-right: 8px;                 /* keep width, drop green border/bg */
 }
-    }}
+    
     .sb-callout {
   background: #f3f2f1; border-left: 6px solid #b1b4b6;  /* GOV.UK grey tone */
   padding: 8px 10px; margin-bottom: 6px; font-weight: 700;
