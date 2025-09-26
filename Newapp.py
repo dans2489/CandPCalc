@@ -29,13 +29,15 @@ st.markdown(
       font-family: system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Ubuntu, Cantarell,
                    Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
     }
-    /* Primary buttons – full width for alignment */
+
+    /* Primary buttons – full width for clean alignment */
     .stButton > button {
       background: #00703C; color: #fff; border: 2px solid #005A30;
       border-radius: 4px; padding: .50rem 1rem; font-weight: 600; width: 100%;
     }
     .stButton > button:focus { outline: 3px solid #FFDD00; outline-offset: 2px; }
-    /* Download buttons full width as well */
+
+    /* Download buttons full width */
     .stDownloadButton > button { width: 100%; }
 
     /* Tables (GOV.UK-like chrome) */
@@ -48,8 +50,11 @@ st.markdown(
 
     /* Wider, neutral sidebar (no green background/border) */
     [data-testid="stSidebar"] > div:first-child {
-      min-width: 420px; max-width: 480px; padding-right: 8px;
+      min-width: 420px;
+      max-width: 480px;
+      padding-right: 8px;
     }
+
     /* Optional neutral callout in the sidebar */
     .sb-callout {
       background: #f3f2f1; border-left: 6px solid #b1b4b6;
