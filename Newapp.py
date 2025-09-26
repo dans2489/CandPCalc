@@ -489,10 +489,6 @@ def item_capacity_100(prisoners_assigned: int, minutes_per_item: float, prisoner
     if prisoners_assigned <= 0 or minutes_per_item <= 0 or prisoners_required <= 0 or hours <= 0:
         return 0.0
     return (prisoners_assigned * hours * 60.0) / (minutes_per_item * prisoners_required)
-
-# -----------------------------
-# (Part 2 will add helpers for rendering/exports and the Host & Production branches)
-# -----------------------------
 # Cost and Price Calculator — Streamlit app
 # Centered layout, widened/obvious sidebar (editable rates only), tariff intensities with active-band highlight,
 # hour-scaled variable energy (baseline 27 h/wk), Region display fix, simplified Ad‑hoc (working days).
@@ -988,3 +984,4 @@ def item_capacity_100(prisoners_assigned: int, minutes_per_item: float, prisoner
 # -----------------------------
 # (Part 2 will add helpers for rendering/exports and the Host & Production branches)
 # -----------------------------
+
