@@ -1,7 +1,4 @@
-
-```python
 from __future__ import annotations
-from io import BytesIO
 from datetime import date, timedelta
 import math
 import pandas as pd
@@ -10,8 +7,8 @@ import numpy as np
 
 # --- Import configuration data from the external file ---
 from config import (
-    DAYS_PER_MONTH, FT2_TO_M2, BASE_HOURS_PER_WEEK, RATE_INPUTS_CONFIG,
-    PRISON_TO_REGION, SUPERVISOR_PAY, TARIFF_BANDS
+    FT2_TO_M2, RATE_INPUTS_CONFIG,
+    PRISON_TO_REGION, TARIFF_BANDS
 )
 
 
@@ -51,6 +48,7 @@ def calculate_costs(tariff_band: str, editable_rates: dict, area_m2: float) -> p
 
 def reset_rates_to_tariff():
     """Callback function to reset rates when the tariff band changes or button is clicked."""
+    # Get the value *after* the change, which is accessible via the widget's key in session_state
     selected_band = st.session_state.get('tariff_band_selector', 'medium') 
     default_rates = TARIFF_BANDS[selected_band]['rates']
     for key, _, _ in RATE_INPUTS_CONFIG:
@@ -174,7 +172,7 @@ with st.sidebar:
         key='selected_prison'
     )
     
-    # FIX: Region Display now works as expected by running the logic every rerun
+    # FIX APPLIED: Region is calculated and displayed correctly here.
     region = PRISON_TO_REGION.get(prison, "National")
     st.markdown(f"**Region:** <span style='font-weight:700; color:#00703C;'>{region}</span>", unsafe_allow_html=True)
     
@@ -239,27 +237,7 @@ cost_df = calculate_costs(
 
 st.subheader(f"Annual Estimated Costs ({prison})")
 
-# Custom table styling to apply the 'grand' row class
-def apply_custom_style(df):
-    styles = []
-    # Find the index of the total row
-    total_index = df.index[-1]
-    
-    # Apply the 'grand' class to the total row
-    styles.append({
-        'selector': f'tr:nth-child({total_index + 2})', # +2 because index starts at 0, and table header is 1 row
-        'props': [('font-weight', '800'), ('border-top', '3px double #0b0c0c')]
-    })
-    
-    # This uses a simple DataFrame style approach. For the full CSS, 
-    # it's usually easier to render the table using st.markdown(df.to_html())
-    # but st.dataframe is generally better for Streamlit performance.
-    
-    return df.style.format(
-        {'Annual Cost (£)': '£{:,.2f}'}
-    ).hide(axis='index')
-
-
+# Custom styling for the total row in the Streamlit dataframe
 st.dataframe(
     cost_df.style.apply(lambda x: ['font-weight: bold; border-top: 3px double black' if i == len(cost_df) - 1 else '' for i in range(len(cost_df))], axis=0).format(
         {'Annual Cost (£)': '£{:,.2f}'}
@@ -306,4 +284,3 @@ else:
         </ul>
     </div>
     """, unsafe_allow_html=True)
-```
