@@ -141,14 +141,11 @@ workshop_usage = st.radio(
     ["Low usage", "Medium usage", "High usage"],
     horizontal=True,
     key="workshop_usage",
-)
-USAGE_KEY = ("low" if "Low" in workshop_usage else "medium" if "Medium" in workshop_usage else "high")
-st.caption(
-    "**What these mean:** "
-    "**Low** – heated & lit, light plug/process loads; minimal machinery. "
-    "**Medium** – mixed light industrial with intermittent small machinery + lighting/IT. "
-    "**High** – machinery-heavy or continuous processes plus lighting/IT and heating. "
-    "(Aligned with UK operational benchmarking practice.)"
+    help=(
+        "• Low: Mainly lit & heated, light plug/process loads, very limited machinery.\n"
+        "• Medium: Mixed light industrial — intermittent small machinery, lighting/IT loads.\n"
+        "• High: Continuous/heavy machinery use, plus lighting/IT and space heating."
+    )
 )
 
 # -----------------------------
