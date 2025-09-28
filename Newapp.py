@@ -1,7 +1,4 @@
-# Cost and Price Calculator — Streamlit app
-# Centered layout, neutral/wide sidebar (editable rates only), tariff intensities with active-band highlight,
-# hour‑scaled variable energy (baseline 27 h/wk), Region display fix, Ad‑hoc (working days) with concise outputs.
-# Author: M365 Copilot for Dan Smith — 2025‑09‑26
+
 
 from __future__ import annotations
 from io import BytesIO
