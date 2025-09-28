@@ -114,7 +114,7 @@ region = config.PRISON_TO_REGION.get(prison_choice)
 if prison_choice == "Select":
     region = ""
 st.session_state["region"] = region
-st.text_input("Region", value=region, key="region_display", disabled=True)
+
 
 customer_type = st.selectbox("I want to quote for", ["Select", "Commercial", "Another Government Department"], key="customer_type")
 customer_name = st.text_input("Customer Name", key="customer_name")
