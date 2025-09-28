@@ -1,12 +1,15 @@
 # config.py
-from __future__ import annotations
 
-# --- Units & baselines ---
+# -----------------------------
+# Global constants
+# -----------------------------
 DAYS_PER_MONTH = 365.0 / 12.0   # ≈30.42
 FT2_TO_M2 = 0.092903
-BASE_HOURS_PER_WEEK = 27.0      # baseline for scaling variable usage & maintenance
+BASE_HOURS_PER_WEEK = 27.0      # baseline for scaling energy & maintenance
 
-# --- Prison → Region mapping (truncated for readability; paste full mapping from original file) ---
+# -----------------------------
+# Prison → Region map
+# -----------------------------
 PRISON_TO_REGION = {
     "Altcourse": "National", "Ashfield": "National", "Askham Grange": "National", "Aylesbury": "National",
     "Bedford": "National", "Belmarsh": "Inner London", "Berwyn": "National", "Birmingham": "National",
@@ -42,7 +45,18 @@ PRISON_TO_REGION = {
     "Wymott": "National",
 }
 
-# --- Supervisor pay by region (used when not provided by customer) ---
+# -----------------------------
+# Regional uplift multipliers
+# -----------------------------
+REGION_UPLIFT = {
+    "Inner London": 1.15,
+    "Outer London": 1.08,
+    "National": 1.0,
+}
+
+# -----------------------------
+# Instructor pay bands
+# -----------------------------
 SUPERVISOR_PAY = {
     "Inner London": [
         {"title": "Production Instructor: Band 3", "avg_total": 49203},
@@ -58,39 +72,56 @@ SUPERVISOR_PAY = {
     ],
 }
 
-# --- Tariff bands: intensities (per year) and rate inputs ---
+# -----------------------------
+# Tariff bands (baseline — no uplift)
+# -----------------------------
 TARIFF_BANDS = {
     "low": {
         "intensity_per_year": {
-            "elec_kwh_per_m2": 65, "gas_kwh_per_m2": 80,
-            "water_m3_per_employee": 15, "maint_gbp_per_m2": 8,
+            "elec_kwh_per_m2": 65,
+            "gas_kwh_per_m2": 80,
+            "water_m3_per_employee": 15,
+            "maint_gbp_per_m2": 8,
         },
         "rates": {
-            "elec_unit": 0.2597, "elec_daily": 0.487,
-            "gas_unit": 0.0629,  "gas_daily": 0.3403,
-            "water_unit": 1.30, "admin_monthly": 150.0,
+            "elec_unit": 0.2597,
+            "elec_daily": 0.487,
+            "gas_unit": 0.0629,
+            "gas_daily": 0.3403,
+            "water_unit": 1.30,
+            "admin_monthly": 150.0,
         },
     },
     "medium": {
         "intensity_per_year": {
-            "elec_kwh_per_m2": 110, "gas_kwh_per_m2": 120,
-            "water_m3_per_employee": 15, "maint_gbp_per_m2": 12,
+            "elec_kwh_per_m2": 110,
+            "gas_kwh_per_m2": 120,
+            "water_m3_per_employee": 15,
+            "maint_gbp_per_m2": 12,
         },
         "rates": {
-            "elec_unit": 0.2597, "elec_daily": 0.487,
-            "gas_unit": 0.0629,  "gas_daily": 0.3403,
-            "water_unit": 1.30, "admin_monthly": 150.0,
+            "elec_unit": 0.2597,
+            "elec_daily": 0.487,
+            "gas_unit": 0.0629,
+            "gas_daily": 0.3403,
+            "water_unit": 1.30,
+            "admin_monthly": 150.0,
         },
     },
     "high": {
         "intensity_per_year": {
-            "elec_kwh_per_m2": 160, "gas_kwh_per_m2": 180,
-            "water_m3_per_employee": 15, "maint_gbp_per_m2": 15,
+            "elec_kwh_per_m2": 160,
+            "gas_kwh_per_m2": 180,
+            "water_m3_per_employee": 15,
+            "maint_gbp_per_m2": 15,
         },
         "rates": {
-            "elec_unit": 0.2597, "elec_daily": 0.487,
-            "gas_unit": 0.0629,  "gas_daily": 0.3403,
-            "water_unit": 1.30, "admin_monthly": 150.0,
+            "elec_unit": 0.2597,
+            "elec_daily": 0.487,
+            "gas_unit": 0.0629,
+            "gas_daily": 0.3403,
+            "water_unit": 1.30,
+            "admin_monthly": 150.0,
         },
     },
 }
