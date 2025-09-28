@@ -19,7 +19,7 @@ st.set_page_config(
 )
 inject_govuk_style(st)
 st.markdown("## Cost and Price Calculator\n")
-st.write("This is the main page content, centered even when the sidebar is open/closed.")
+
 
 # -----------------------------
 # Helpers / Renderers / Export
