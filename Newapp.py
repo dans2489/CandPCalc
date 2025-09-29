@@ -1,8 +1,9 @@
 # newapp.py
 # UI shell for the Cost and Price Calculator.
-# - Branded in-body header (logo + title) using st.image (not st.logo)
-# - Logo embedded in HTML downloads (Host & Production). CSVs remain unbranded.
-# - Supports Production -> Contractual "Target units/week" mode.
+# - In-body branded header (logo + title) using st.image (not st.logo)
+# - Logo size is adjustable (Branding control) and applied to HTML downloads
+# - Supports Production -> Contractual "Target units/week" mode
+# - CSVs remain unbranded
 
 from io import BytesIO
 from datetime import date
@@ -25,13 +26,20 @@ st.set_page_config(page_title="Cost and Price Calculator", page_icon="💷", lay
 inject_govuk_css()
 
 # -----------------------------------------------------------------------------
-# In-body header (logo + title) - robust, no HTML escaping
+# Branding control (set header logo size)
 # -----------------------------------------------------------------------------
 LOGO_PATH = Path(__file__).parent / "NFN-new-logo.png"
+with st.expander("Branding", expanded=False):
+    LOGO_SIZE_PX = st.slider("Header logo size (px)", min_value=48, max_value=160, value=96, step=4,
+                             help="Controls the logo size next to the title and in the HTML/PDF downloads.")
+
+# -----------------------------------------------------------------------------
+# In-body header (logo + title) - robust, and now big
+# -----------------------------------------------------------------------------
 c1, c2 = st.columns([1, 12])
 with c1:
     if LOGO_PATH.exists():
-        st.image(str(LOGO_PATH), width=64)  # Adjust to taste (e.g., 56-80)
+        st.image(str(LOGO_PATH), width=LOGO_SIZE_PX)
 with c2:
     st.markdown("## Cost and Price Calculator")
 
@@ -89,20 +97,25 @@ def _read_logo_b64() -> str | None:
 def export_html(host_df: pd.DataFrame | None,
                 prod_df: pd.DataFrame | None,
                 title: str = "Quote",
-                logo_b64: str | None = None) -> BytesIO:
+                logo_b64: str | None = None,
+                logo_px: int | None = None) -> BytesIO:
     """
     Build a full HTML document (self-contained) with inline logo (Base64) and
     the rendered Host/Production tables. Safe for offline PDF printing.
     """
-    css = """
-      body{font-family:Arial,Helvetica,sans-serif;color:#0b0c0c;}
-      table{width:100%;border-collapse:collapse;margin:12px 0;}
-      th,td{border-bottom:1px solid #b1b4b6;padding:8px;text-align:left;}
-      th{background:#f3f2f1;} td.neg{color:#d4351c;} tr.grand td{font-weight:700;}
-      h1,h2,h3{margin:0.2rem 0;}
-      .doc-header{display:flex;align-items:center;gap:12px;margin:0.2rem 0 0.8rem 0;}
-      .doc-header img{height:48px;width:auto;display:block;}
-      .doc-header h2{margin:0;}
+    # Base styles + small-screen cap to avoid comically large logos on phones
+    css = f"""
+      body{{font-family:Arial,Helvetica,sans-serif;color:#0b0c0c;}}
+      table{{width:100%;border-collapse:collapse;margin:12px 0;}}
+      th,td{{border-bottom:1px solid #b1b4b6;padding:8px;text-align:left;}}
+      th{{background:#f3f2f1;}} td.neg{{color:#d4351c;}} tr.grand td{{font-weight:700;}}
+      h1,h2,h3{{margin:0.2rem 0;}}
+      .doc-header{{display:flex;align-items:center;gap:12px;margin:0.2rem 0 0.8rem 0;}}
+      .doc-header img{{height:{logo_px or 80}px;width:auto;display:block;}}
+      .doc-header h2{{margin:0;}}
+      @media (max-width: 640px) {{
+        .doc-header img{{height:56px !important;}}
+      }}
     """
     header_html = f"""
       <div class="doc-header">
@@ -114,6 +127,7 @@ def export_html(host_df: pd.DataFrame | None,
             f"Customer: {st.session_state.get('customer_name','')}<br/>"
             f"Prison: {st.session_state.get('prison_choice','')}<br/>"
             f"Region: {st.session_state.get('region','')}</p>")
+
     parts = [header_html, meta]
     if host_df is not None:
         parts += ["<h3>Host Costs</h3>", render_host_df_to_html(host_df)]
@@ -306,7 +320,8 @@ def run_host():
         with c2:
             st.download_button(
                 "Download PDF-ready HTML (Host)",
-                data=export_html(host_df, None, title="Host Quote", logo_b64=_read_logo_b64()),
+                data=export_html(host_df, None, title="Host Quote",
+                                 logo_b64=_read_logo_b64(), logo_px=LOGO_SIZE_PX),
                 file_name="host_quote.html", mime="text/html"
             )
 
@@ -445,7 +460,8 @@ def run_production():
         with d2:
             st.download_button(
                 "Download PDF-ready HTML (Production)",
-                data=export_html(None, prod_df, title="Production Quote", logo_b64=_read_logo_b64()),
+                data=export_html(None, prod_df, title="Production Quote",
+                                 logo_b64=_read_logo_b64(), logo_px=LOGO_SIZE_PX),
                 file_name="production_quote.html", mime="text/html"
             )
 
@@ -541,3 +557,4 @@ if st.button("Reset Selections", key="reset_app_footer"):
         st.rerun()
     except Exception:
         st.experimental_rerun()
+st.markdown('\n', unsafe_allow_html=True)
