@@ -55,6 +55,33 @@ def inject_govuk_css():
       /* Try to tint the filled track (best-effort; Streamlit DOM may change) */
       [data-testid="stSlider"] div[aria-hidden="true"] > div > div {
         background-color: var(--govuk-green) !important;
+
+        # style.py
+import streamlit as st
+
+def inject_govuk_css() -> None:
+    """
+    Inject minimal GOV.UK-ish styling and app header/logo helpers.
+    Keeps to your existing look-and-feel while giving a tidy header row.
+    """
+    st.markdown(
+        """
+        <style>
+          /* Typography and colours kept subtle to avoid clashing with Streamlit */
+          .govuk-heading-l { font-weight: 700; font-size: 1.75rem; line-height: 1.2; }
+          .app-header { display:flex; align-items:center; gap:12px; margin: 0.25rem 0 0.75rem 0; }
+          .app-header .app-logo { height: 40px; width: auto; display:block; }
+
+          /* Optional: tidy tables in the app */
+          table { width:100%; border-collapse: collapse; margin: 12px 0; }
+          th, td { border-bottom: 1px solid #b1b4b6; padding: 8px; text-align: left; }
+          th { background: #f3f2f1; }
+          td.neg { color: #d4351c; }
+          tr.grand td { font-weight: 700; }
+        </style>
+        """,
+        unsafe_allow_html=True
+
       }
     </style>
     """, unsafe_allow_html=True)
