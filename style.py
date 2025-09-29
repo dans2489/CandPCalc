@@ -1,7 +1,7 @@
 # style.py
 # Minimal styling to keep your original look, widen the sidebar,
 # apply GOV.UK green/yellow to buttons and sliders,
-# and provide a tidy header row style for the in-body logo+title.
+# and provide a tidy header row style for the in‑body logo+title.
 
 import streamlit as st
 
@@ -54,15 +54,15 @@ def inject_govuk_css() -> None:
             outline-offset: 0 !important;
             box-shadow: 0 0 0 1px #000 inset !important;
           }
-          /* Tint the filled track (best-effort; DOM may change across versions) */
+          /* Tint the filled track (best-effort across versions) */
           [data-testid="stSlider"] div[aria-hidden="true"] > div > div {
             background-color: var(--govuk-green) !important;
           }
 
-          /* In-body header row (logo + title) */
+          /* In-body header (logo + title) */
           .govuk-heading-l { font-weight: 700; font-size: 1.75rem; line-height: 1.2; }
           .app-header { display:flex; align-items:center; gap:12px; margin: 0.25rem 0 0.75rem 0; }
-          .app-header .app-logo { height: 40px; width: auto; display:block; }
+          .app-header .app-logo { height: 56px; width: auto; display:block; } /* <— bigger logo */
 
           /* Tidy tables in the app body */
           table { width:100%; border-collapse: collapse; margin: 12px 0; }
