@@ -5,14 +5,10 @@ from __future__ import annotations
 
 from typing import List, Dict, Tuple
 import pandas as pd
+import streamlit as st
 
 from config import CFG
-from production import (
-    weekly_overheads_total,
-    monthly_energy_costs,
-    monthly_water_costs,
-    monthly_maintenance,
-)
+from production import monthly_energy_costs, monthly_water_costs, monthly_maintenance
 
 
 def generate_host_quote(
@@ -29,10 +25,12 @@ def generate_host_quote(
     customer_type: str,
     apply_vat: bool,
     vat_rate: float,
+    dev_applied_rate: float,  # <-- passed from UI (same question as Production)
 ) -> Tuple[pd.DataFrame, Dict]:
     """
     Builds a monthly Host breakdown DataFrame and returns (df, context_dict).
     Standing charges are not apportioned; variable energy and maintenance are apportioned by hours.
+    Includes Development charge per 'employment support' selection (Commercial only).
     """
     breakdown = {}
 
@@ -49,7 +47,7 @@ def generate_host_quote(
     elec_m, gas_m = monthly_energy_costs(workshop_hours, area_m2, usage_key)
     water_m = monthly_water_costs(num_prisoners, num_supervisors, customer_covers_supervisors, usage_key)
     maint_m = monthly_maintenance(workshop_hours, area_m2, usage_key)
-    admin_m = float(__import__("streamlit").st.session_state.get("admin_monthly", CFG.DEFAULT_ADMIN_MONTHLY))
+    admin_m = float(st.session_state.get("admin_monthly", CFG.DEFAULT_ADMIN_MONTHLY))
 
     breakdown["Electricity (estimated)"] = elec_m
     breakdown["Gas (estimated)"] = gas_m
@@ -59,12 +57,9 @@ def generate_host_quote(
 
     overheads_subtotal = elec_m + gas_m + water_m + admin_m + maint_m
 
-    # Simple development charge placeholder (Commercial only)
-    if customer_type == "Commercial":
-        dev_applied_rate = 0.20
-        breakdown["Development charge (applied)"] = overheads_subtotal * dev_applied_rate
-    else:
-        breakdown["Development charge (applied)"] = 0.0
+    # Development charge (Commercial only) — same logic as Production
+    dev_applied_m = overheads_subtotal * (float(dev_applied_rate) if customer_type == "Commercial" else 0.0)
+    breakdown["Development charge (applied)"] = dev_applied_m
 
     subtotal = sum(breakdown.values())
     vat_amount = (subtotal * (float(vat_rate) / 100.0)) if (customer_type == "Commercial" and apply_vat) else 0.0
