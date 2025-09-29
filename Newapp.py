@@ -436,7 +436,7 @@ def calculate_production_contractual(items, output_pct: int):
             "Unit Price ex VAT (£)": unit_price_ex_vat,
             "Unit Price inc VAT (£)": unit_price_inc_vat,
         })
-        return results
+    return results
 
 # ----------------------------
 # HOST branch
@@ -498,7 +498,7 @@ def generate_host():
 # PRODUCTION branch
 # ----------------------------
 def production_contractual(output_pct: int):
-    # (Caption removed per your request)
+    # Using per‑item assignment; Output % is global
     budget_minutes = labour_minutes_budget(num_prisoners, workshop_hours)
     st.markdown(f"As per your selected resources you have **{budget_minutes:,.0f} Labour minutes** available this week.")
 
@@ -519,18 +519,18 @@ def production_contractual(output_pct: int):
                 min_value=1.0, value=10.0, format="%.2f", key=f"mins_{i}"
             )
 
-            # 🔁 PER‑ITEM ASSIGNMENT (back to original behaviour)
+            # PER‑ITEM ASSIGNMENT
             prisoners_assigned = st.number_input(
                 f"How many prisoners work solely on this item ({display_name})",
                 min_value=0, max_value=int(num_prisoners), value=0, step=1, key=f"assigned_{i}"
             )
 
-            # Preview capacity @ 100% for this item (uses per‑item assignment)
+            # Preview capacity @ 100% for this item
             if prisoners_assigned > 0 and minutes_per_item > 0 and prisoners_required > 0 and workshop_hours > 0:
-                cap_preview = (prisoners_assigned * workshop_hours * 60.0) / (minutes_per_item * prisoners_required)
+                cap_100 = (prisoners_assigned * workshop_hours * 60.0) / (minutes_per_item * prisoners_required)
             else:
-                cap_preview = 0.0
-            st.markdown(f"{display_name} capacity @ 100%: **{cap_preview:.0f} units/week**")
+                cap_100 = 0.0
+            st.markdown(f"{display_name} capacity @ 100%: **{cap_100:.0f} units/week**")
 
             items.append({
                 "name": name,
@@ -544,15 +544,22 @@ def production_contractual(output_pct: int):
         st.error("Fix errors before production calculations:\n- " + "\n- ".join(errs))
         return
 
-    # Ensure total assigned does not exceed overall labour minutes
-    used_minutes = sum(int(it["assigned"]) * workshop_hours * 60.0 for it in items)
-    st.markdown(f"**Used Labour minutes:** {used_minutes:,.0f} / {budget_minutes:,.0f}")
-    if used_minutes > budget_minutes:
+    # --- Minutes usage (show planned at current Output%)
+    output_scale = float(output_pct) / 100.0
+    used_minutes_raw = sum(int(it["assigned"]) * workshop_hours * 60.0 for it in items)
+    used_minutes_planned = used_minutes_raw * output_scale
+
+    st.markdown(
+        f"**Used Labour minutes (planned @ {output_pct}%):** "
+        f"{used_minutes_planned:,.0f} / {budget_minutes:,.0f}"
+    )
+
+    if used_minutes_planned > budget_minutes:
         st.error(
-            "Assigned prisoners across items exceed the available weekly Labour minutes. "
-            "Reduce assigned counts, add prisoners, or increase weekly hours."
+            "Planned used minutes exceed the available weekly Labour minutes. "
+            "Adjust assignments, add prisoners, increase hours, or lower Output%."
         )
-        return
+        # ⚠️ Do NOT return here — still show the table so you can see the effect.
 
     results = calculate_production_contractual(items, output_pct)
     prod_df = pd.DataFrame([{
@@ -770,4 +777,5 @@ if st.button("Reset Selections", key="reset_app_footer"):
     except Exception:
         st.experimental_rerun()
 st.markdown('\n', unsafe_allow_html=True)
+
 
