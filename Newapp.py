@@ -1,9 +1,9 @@
 # newapp.py
 # UI shell for the Cost and Price Calculator.
 # - In-body branded header (logo + title) using st.image (not st.logo)
-# - Logo size is adjustable (Branding control) and applied to HTML downloads
+# - Fixed large logo size (adjust LOGO_SIZE_PX)
+# - Logo embedded in HTML downloads (Host & Production). CSVs remain unbranded.
 # - Supports Production -> Contractual "Target units/week" mode
-# - CSVs remain unbranded
 
 from io import BytesIO
 from datetime import date
@@ -26,15 +26,13 @@ st.set_page_config(page_title="Cost and Price Calculator", page_icon="💷", lay
 inject_govuk_css()
 
 # -----------------------------------------------------------------------------
-# Branding control (set header logo size)
+# Fixed logo size (change here if you want it bigger/smaller)
 # -----------------------------------------------------------------------------
 LOGO_PATH = Path(__file__).parent / "NFN-new-logo.png"
-with st.expander("Branding", expanded=False):
-    LOGO_SIZE_PX = st.slider("Header logo size (px)", min_value=48, max_value=160, value=96, step=4,
-                             help="Controls the logo size next to the title and in the HTML/PDF downloads.")
+LOGO_SIZE_PX = 112  # <--- Set your preferred logo size here (e.g., 96, 112, 128)
 
 # -----------------------------------------------------------------------------
-# In-body header (logo + title) - robust, and now big
+# In-body header (logo + title)
 # -----------------------------------------------------------------------------
 c1, c2 = st.columns([1, 12])
 with c1:
@@ -98,12 +96,11 @@ def export_html(host_df: pd.DataFrame | None,
                 prod_df: pd.DataFrame | None,
                 title: str = "Quote",
                 logo_b64: str | None = None,
-                logo_px: int | None = None) -> BytesIO:
+                logo_px: int = LOGO_SIZE_PX) -> BytesIO:
     """
     Build a full HTML document (self-contained) with inline logo (Base64) and
     the rendered Host/Production tables. Safe for offline PDF printing.
     """
-    # Base styles + small-screen cap to avoid comically large logos on phones
     css = f"""
       body{{font-family:Arial,Helvetica,sans-serif;color:#0b0c0c;}}
       table{{width:100%;border-collapse:collapse;margin:12px 0;}}
@@ -111,7 +108,7 @@ def export_html(host_df: pd.DataFrame | None,
       th{{background:#f3f2f1;}} td.neg{{color:#d4351c;}} tr.grand td{{font-weight:700;}}
       h1,h2,h3{{margin:0.2rem 0;}}
       .doc-header{{display:flex;align-items:center;gap:12px;margin:0.2rem 0 0.8rem 0;}}
-      .doc-header img{{height:{logo_px or 80}px;width:auto;display:block;}}
+      .doc-header img{{height:{logo_px}px;width:auto;display:block;}}
       .doc-header h2{{margin:0;}}
       @media (max-width: 640px) {{
         .doc-header img{{height:56px !important;}}
@@ -127,7 +124,6 @@ def export_html(host_df: pd.DataFrame | None,
             f"Customer: {st.session_state.get('customer_name','')}<br/>"
             f"Prison: {st.session_state.get('prison_choice','')}<br/>"
             f"Region: {st.session_state.get('region','')}</p>")
-
     parts = [header_html, meta]
     if host_df is not None:
         parts += ["<h3>Host Costs</h3>", render_host_df_to_html(host_df)]
@@ -237,14 +233,10 @@ st.subheader("Instructor Time Allocation")
 st.info(f"Recommended: {recommended_pct}%")
 chosen_pct = st.slider("Adjust instructor % allocation", 0, 100, int(recommended_pct), key="chosen_pct")
 if chosen_pct < int(round(recommended_pct)):
-    st.warning("You selected less than recommended — please explain why here.")
-    reason = st.text_area("Reason for a lower allocation", key="alloc_reason")
-    action = st.radio("Apply allocation", ["Keep recommended", "Set new"], index=0, horizontal=True, key="alloc_action")
-    if action == "Set new" and not str(reason).strip():
-        st.error("Provide a brief explanation before setting a lower allocation.")
+    st.warning("You selected less than recommended — using the recommended % for pricing.")
     effective_pct = int(round(recommended_pct))
 else:
-    effective_pct = int(chosen_pct) if st.session_state.get("alloc_action") == "Set new" else int(round(recommended_pct))
+    effective_pct = int(chosen_pct)
 
 # Employment support -> Development charge
 dev_rate = 0.0
@@ -311,9 +303,7 @@ def run_host():
             vat_rate=float(vat_rate),
             dev_rate=float(dev_rate),
         )
-        # On-screen table
         st.markdown(render_host_df_to_html(host_df), unsafe_allow_html=True)
-        # Downloads
         c1, c2 = st.columns(2)
         with c1:
             st.download_button("Download CSV (Host)", data=export_csv_bytes(host_df), file_name="host_quote.csv", mime="text/csv")
