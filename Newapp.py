@@ -1,8 +1,9 @@
 # newapp.py
 # Logo-free UI shell for the Cost and Price Calculator.
-# - GOV.UK-style title only (no image anywhere).
 # - Host and Production (Contractual + Ad‑hoc) with downloads (CSV + HTML).
-# - Contractual supports "As‑is (max units)" and "Target units/week" modes.
+# - Contractual supports “Maximum units from capacity” and “Target units/week”.
+# - VAT: always 20% (no checkbox); always show ex VAT and inc VAT prices.
+# - Development charge does not apply to Another Government Department.
 
 from io import BytesIO
 from datetime import date
@@ -19,7 +20,6 @@ from production import (
     calculate_adhoc,
 )
 from host import generate_host_quote
-
 
 # -----------------------------------------------------------------------------
 # Page config + CSS
@@ -218,16 +218,6 @@ if customer_type == "Commercial":
     else:
         dev_rate = 0.00
 
-# Pricing (Commercial) — VAT
-st.markdown("---")
-st.subheader("Pricing (Commercial)")
-colp1, colp2 = st.columns([1, 1])
-with colp1:
-    apply_vat = st.checkbox("Apply VAT?", key="apply_vat")
-with colp2:
-    vat_rate = st.number_input("VAT rate %", min_value=0.0, max_value=100.0, value=20.0, step=0.5, format="%.1f", key="vat_rate")
-
-
 # -----------------------------------------------------------------------------
 # Validation
 # -----------------------------------------------------------------------------
@@ -249,7 +239,6 @@ def validate_inputs():
         if any(s <= 0 for s in supervisor_salaries): errors.append("Instructor Avg Total must be > 0")
     return errors
 
-
 # -----------------------------------------------------------------------------
 # HOST
 # -----------------------------------------------------------------------------
@@ -269,8 +258,8 @@ def run_host():
             supervisor_salaries=supervisor_salaries,
             effective_pct=float(effective_pct),
             customer_type=customer_type,
-            apply_vat=bool(apply_vat),
-            vat_rate=float(vat_rate),
+            apply_vat=True,          # <— VAT always on
+            vat_rate=20.0,           # <— 20%
             dev_rate=float(dev_rate),
         )
         st.markdown(render_host_df_to_html(host_df), unsafe_allow_html=True)
@@ -283,7 +272,6 @@ def run_host():
                 data=export_html(host_df, None, title="Host Quote"),
                 file_name="host_quote.html", mime="text/html"
             )
-
 
 # -----------------------------------------------------------------------------
 # PRODUCTION
@@ -309,16 +297,16 @@ def run_production():
     )
 
     if prod_type == "Contractual work":
-        # Pricing mode
+        # Pricing mode — label changed per your request
         pricing_mode_label = st.radio(
             "Price based on:",
             ["Maximum units from capacity", "Target units per week"],
             index=0,
-            help="Max units your assigned prisoners can produce at the chosen Output %. Target lets you enter desired units/week per item."
+            help="Maximum units uses the capacity your assignments can produce at the chosen Output%. Target lets you enter desired units/week."
         )
-        pricing_mode = "as-is" if pricing_mode_label.startswith("As‑is") else "target"
+        pricing_mode = "as-is" if pricing_mode_label.startswith("Maximum") else "target"
 
-        # Planned available minutes
+        # Planned minutes (info)
         budget_minutes_raw = labour_minutes_budget(int(num_prisoners), float(workshop_hours))
         budget_minutes_planned = budget_minutes_raw * output_scale
         st.markdown(f"**Planned available Labour minutes @ {planned_output_pct}%:** {budget_minutes_planned:,.0f}")
@@ -349,6 +337,7 @@ def run_production():
                 cap_planned = cap_100 * output_scale
                 st.markdown(f"{disp} capacity @ 100%: **{cap_100:.0f} units/week** · @ {planned_output_pct}%: **{cap_planned:.0f}**")
 
+                # Target input — ONLY when pricing_mode == "target"
                 if pricing_mode == "target":
                     tgt_default = int(round(cap_planned)) if cap_planned > 0 else 0
                     tgt = st.number_input(f"Target units per week ({disp})", min_value=0, value=tgt_default, step=1, key=f"target_{i}")
@@ -367,6 +356,7 @@ def run_production():
         if pricing_mode == "as-is" and used_minutes_planned > budget_minutes_planned:
             st.error("Planned used minutes exceed planned available minutes. Adjust assignments, add prisoners, increase hours, or lower Output%."); return
 
+        # === Always apply VAT 20% in calculations ===
         results = calculate_production_contractual(
             items, planned_output_pct,
             workshop_hours=float(workshop_hours),
@@ -375,8 +365,8 @@ def run_production():
             effective_pct=float(effective_pct),
             customer_covers_supervisors=bool(customer_covers_supervisors),
             customer_type=customer_type,
-            apply_vat=bool(apply_vat),
-            vat_rate=float(vat_rate),
+            apply_vat=True,          # <— force VAT on
+            vat_rate=20.0,           # <— 20%
             area_m2=float(area_m2),
             usage_key=USAGE_KEY,
             num_prisoners=int(num_prisoners),
@@ -386,7 +376,7 @@ def run_production():
             targets=targets if pricing_mode == "target" else None,
         )
 
-        # Minutes safety + feasibility warnings
+        # Minutes safety + target warnings
         units_minutes = 0.0
         warnings = []
         for r, it in zip(results, items):
@@ -402,10 +392,11 @@ def run_production():
             if warnings:
                 st.warning("Some targets exceed available minutes at the current plan:\n" + "\n".join(warnings))
 
-        display_cols = ["Item", "Output %", "Pricing mode", "Capacity (units/week)", "Units/week",
+        # Build display — always show ex VAT and inc VAT; hide target-only cols in max mode
+        display_cols = ["Item", "Output %", "Capacity (units/week)", "Units/week",
                         "Unit Cost (£)", "Unit Price ex VAT (£)", "Unit Price inc VAT (£)"]
         if pricing_mode == "target":
-            display_cols += ["Feasible", "Note"]
+            display_cols += ["Feasible", "Note"]  # shown only in target mode
 
         prod_df = pd.DataFrame([{
             k: (None if r.get(k) is None else (round(float(r.get(k)), 2) if isinstance(r.get(k), (int, float)) else r.get(k)))
@@ -453,6 +444,7 @@ def run_production():
             if errs:
                 st.error("Fix errors:\n- " + "\n- ".join(errs)); return
 
+            # Always VAT 20% for Ad-hoc
             result = calculate_adhoc(
                 lines, planned_output_pct,
                 workshop_hours=float(workshop_hours),
@@ -462,8 +454,8 @@ def run_production():
                 effective_pct=float(effective_pct),
                 customer_covers_supervisors=bool(customer_covers_supervisors),
                 customer_type=customer_type,
-                apply_vat=bool(apply_vat),
-                vat_rate=float(vat_rate),
+                apply_vat=True,       # <— force VAT on
+                vat_rate=20.0,        # <— 20%
                 area_m2=float(area_m2),
                 usage_key=USAGE_KEY,
                 dev_rate=float(dev_rate),
@@ -472,16 +464,16 @@ def run_production():
             if result["feasibility"]["hard_block"]:
                 st.error(result["feasibility"]["reason"]); return
 
-            show_inc = (customer_type == "Commercial" and apply_vat)
+            # Build table with BOTH ex VAT and inc VAT columns
             col_headers = ["Item", "Units",
-                           f"Unit Cost (£{' inc VAT' if show_inc else ''})",
-                           f"Line Total (£{' inc VAT' if show_inc else ''})"]
+                           "Unit Cost (ex VAT £)", "Unit Cost (inc VAT £)",
+                           "Line Total (ex VAT £)", "Line Total (inc VAT £)"]
             data_rows = []
             for p in result["per_line"]:
                 data_rows.append([
                     p["name"], f"{p['units']:,}",
-                    f"{(p['unit_cost_inc_vat'] if show_inc else p['unit_cost_ex_vat']):.2f}",
-                    f"{(p['line_total_inc_vat'] if show_inc else p['line_total_ex_vat']):.2f}",
+                    f"{p['unit_cost_ex_vat']:.2f}", f"{p['unit_cost_inc_vat']:.2f}",
+                    f"{p['line_total_ex_vat']:.2f}", f"{p['line_total_inc_vat']:.2f}",
                 ])
             table_html = ["<table><tr>"] + [f"<th>{h}</th>" for h in col_headers] + ["</tr>"]
             for r in data_rows:
@@ -490,11 +482,8 @@ def run_production():
             st.markdown("".join(table_html), unsafe_allow_html=True)
 
             totals = result["totals"]
-            if show_inc:
-                st.markdown(f"**Total Job Cost (inc VAT): £{totals['inc_vat']:,.2f}**")
-                st.caption(f"Total Job Cost (ex VAT): £{totals['ex_vat']:,.2f}")
-            else:
-                st.markdown(f"**Total Job Cost: £{totals['ex_vat']:,.2f}**")
+            st.markdown(f"**Total Job Cost (ex VAT): £{totals['ex_vat']:,.2f}**")
+            st.markdown(f"**Total Job Cost (inc VAT): £{totals['inc_vat']:,.2f}**")
 
 
 # -----------------------------------------------------------------------------
@@ -517,4 +506,3 @@ if st.button("Reset Selections", key="reset_app_footer"):
     except Exception:
         st.experimental_rerun()
 st.markdown('\n', unsafe_allow_html=True)
-
