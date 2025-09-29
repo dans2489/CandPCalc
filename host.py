@@ -1,18 +1,13 @@
 # host.py
-# Host cost breakdown (monthly) using shared overhead functions from production.py
-
-from __future__ import annotations
+# Host monthly breakdown; Development charge uses same question as Production.
 
 from typing import List, Dict, Tuple
 import pandas as pd
 import streamlit as st
 
 from config import CFG
-from production import (
-    monthly_energy_costs,
-    monthly_water_costs,
-    monthly_maintenance,
-)
+from production import monthly_energy_costs, monthly_water_costs, monthly_maintenance
+
 
 def generate_host_quote(
     *,
@@ -28,25 +23,17 @@ def generate_host_quote(
     customer_type: str,
     apply_vat: bool,
     vat_rate: float,
-    dev_rate: float,
+    dev_rate: float,   # 0..0.2 (or your chosen scale)
 ) -> Tuple[pd.DataFrame, Dict]:
-    """
-    Builds a monthly Host breakdown DataFrame and returns (df, context_dict).
-    Standing charges are not apportioned; variable energy and maintenance are apportioned by hours.
-    Development charge follows the same employment-support rules and may be 0%.
-    """
-    breakdown = {}
+    breakdown: Dict[str, float] = {}
 
-    # Prisoner wages: weekly to monthly
-    breakdown["Prisoner wages"] = num_prisoners * prisoner_salary * (52.0 / 12.0)
+    breakdown["Prisoner wages"] = float(num_prisoners) * float(prisoner_salary) * (52.0 / 12.0)
 
-    # Instructors (if not provided by customer)
     instructor_cost = 0.0
     if not customer_covers_supervisors:
         instructor_cost = sum((s / 12.0) * (float(effective_pct) / 100.0) for s in supervisor_salaries)
     breakdown["Instructors"] = instructor_cost
 
-    # Overheads
     elec_m, gas_m = monthly_energy_costs(workshop_hours, area_m2, usage_key)
     water_m = monthly_water_costs(num_prisoners, num_supervisors, customer_covers_supervisors, usage_key)
     maint_m = monthly_maintenance(workshop_hours, area_m2, usage_key)
@@ -59,12 +46,7 @@ def generate_host_quote(
     breakdown["Depreciation/Maintenance (estimated)"] = maint_m
 
     overheads_subtotal = elec_m + gas_m + water_m + admin_m + maint_m
-
-    # Development charge (Commercial only)
-    if customer_type == "Commercial":
-        breakdown["Development charge (applied)"] = overheads_subtotal * float(dev_rate)
-    else:
-        breakdown["Development charge (applied)"] = 0.0
+    breakdown["Development charge (applied)"] = overheads_subtotal * (float(dev_rate) if customer_type == "Commercial" else 0.0)
 
     subtotal = sum(breakdown.values())
     vat_amount = (subtotal * (float(vat_rate) / 100.0)) if (customer_type == "Commercial" and apply_vat) else 0.0
