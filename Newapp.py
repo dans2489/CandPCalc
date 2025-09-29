@@ -1,9 +1,8 @@
 # newapp.py
 # UI shell for the Cost and Price Calculator.
-# - In-body branded header (logo + title) using st.image (not st.logo)
-# - Fixed large logo size (adjust LOGO_SIZE_PX)
-# - Logo embedded in HTML downloads (Host & Production). CSVs remain unbranded.
-# - Supports Production -> Contractual "Target units/week" mode
+# - In-body branded header (large logo + title) using HTML (not st.logo / not columns)
+# - Logo Base64-embedded in HTML downloads (Host & Production). CSVs remain unbranded.
+# - Supports Production -> Contractual "Target units/week" mode.
 
 from io import BytesIO
 from datetime import date
@@ -26,20 +25,35 @@ st.set_page_config(page_title="Cost and Price Calculator", page_icon="💷", lay
 inject_govuk_css()
 
 # -----------------------------------------------------------------------------
-# Fixed logo size (change here if you want it bigger/smaller)
+# Logo autodetect + header (HTML, large and not sidebar-bound)
 # -----------------------------------------------------------------------------
-LOGO_PATH = Path(__file__).parent / "NFN-new-logo.png"
-LOGO_SIZE_PX = 112  # <--- Set your preferred logo size here (e.g., 96, 112, 128)
+HEADER_LOGO_PX = 128  # <--- change this number to your preferred logo size (e.g., 112, 128, 144)
 
-# -----------------------------------------------------------------------------
-# In-body header (logo + title)
-# -----------------------------------------------------------------------------
-c1, c2 = st.columns([1, 12])
-with c1:
-    if LOGO_PATH.exists():
-        st.image(str(LOGO_PATH), width=LOGO_SIZE_PX)
-with c2:
-    st.markdown("## Cost and Price Calculator")
+def _auto_logo_b64() -> str | None:
+    """Find the first existing logo file and return Base64 string, else None."""
+    candidates = ["NFN-new-logo.png", "image.png", "logo.png"]
+    here = Path(__file__).parent
+    for fn in candidates:
+        p = here / fn
+        if p.exists():
+            try:
+                return base64.b64encode(p.read_bytes()).decode("utf-8")
+            except Exception:
+                pass
+    return None
+
+_LOGO_B64 = _auto_logo_b64()
+
+# Big, flexible header (not constrained by Streamlit columns)
+st.markdown(
+    f"""
+    <div class="app-header" style="display:flex;align-items:center;gap:12px;margin: 0.25rem 0 0.75rem 0;">
+        {f'data:image/png;base64,{_LOGO_B64}' if _LOGO_B64 else ''}
+        <h1 class="govuk-heading-l" style="margin:0">Cost and Price Calculator</h1>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 # -----------------------------------------------------------------------------
 # Helpers: rendering, export, formatting
@@ -85,18 +99,11 @@ def export_csv_bytes(df: pd.DataFrame) -> BytesIO:
     b.seek(0)
     return b
 
-def _read_logo_b64() -> str | None:
-    """Return base64 string for the NFN logo or None if missing."""
-    try:
-        return base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8") if LOGO_PATH.exists() else None
-    except Exception:
-        return None
-
 def export_html(host_df: pd.DataFrame | None,
                 prod_df: pd.DataFrame | None,
                 title: str = "Quote",
                 logo_b64: str | None = None,
-                logo_px: int = LOGO_SIZE_PX) -> BytesIO:
+                logo_px: int = HEADER_LOGO_PX) -> BytesIO:
     """
     Build a full HTML document (self-contained) with inline logo (Base64) and
     the rendered Host/Production tables. Safe for offline PDF printing.
@@ -303,15 +310,16 @@ def run_host():
             vat_rate=float(vat_rate),
             dev_rate=float(dev_rate),
         )
+        # On-screen table
         st.markdown(render_host_df_to_html(host_df), unsafe_allow_html=True)
+        # Downloads (logo included, sized to HEADER_LOGO_PX)
         c1, c2 = st.columns(2)
         with c1:
             st.download_button("Download CSV (Host)", data=export_csv_bytes(host_df), file_name="host_quote.csv", mime="text/csv")
         with c2:
             st.download_button(
                 "Download PDF-ready HTML (Host)",
-                data=export_html(host_df, None, title="Host Quote",
-                                 logo_b64=_read_logo_b64(), logo_px=LOGO_SIZE_PX),
+                data=export_html(host_df, None, title="Host Quote", logo_b64=_LOGO_B64, logo_px=HEADER_LOGO_PX),
                 file_name="host_quote.html", mime="text/html"
             )
 
@@ -342,7 +350,7 @@ def run_production():
         # Pricing mode
         pricing_mode_label = st.radio(
             "Price based on:",
-            ["As‑is (maximum units from capacity)", "Target units per week"],
+            ["Maximum units from capacity", "Target units per week"],
             index=0,
             help="As‑is uses the max units your assigned prisoners can produce at the chosen Output %. Target lets you enter desired units/week per item."
         )
@@ -450,8 +458,7 @@ def run_production():
         with d2:
             st.download_button(
                 "Download PDF-ready HTML (Production)",
-                data=export_html(None, prod_df, title="Production Quote",
-                                 logo_b64=_read_logo_b64(), logo_px=LOGO_SIZE_PX),
+                data=export_html(None, prod_df, title="Production Quote", logo_b64=_LOGO_B64, logo_px=HEADER_LOGO_PX),
                 file_name="production_quote.html", mime="text/html"
             )
 
@@ -547,4 +554,3 @@ if st.button("Reset Selections", key="reset_app_footer"):
         st.rerun()
     except Exception:
         st.experimental_rerun()
-st.markdown('\n', unsafe_allow_html=True)
