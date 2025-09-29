@@ -1,17 +1,14 @@
 # production.py
 # Shared overheads + Production calculators (Contractual & Ad‑hoc) with Development charge.
 # Python 3.7+ safe.
-
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 from datetime import date, timedelta
 import math
 import streamlit as st
-
 from config import CFG, hours_scale
 from tariff import TARIFF_BANDS
 
-
-# -------- Overheads (shared) --------
+# ----------- Overheads (shared) -----------
 def monthly_energy_costs(workshop_hours: float, area_m2: float, usage_key: str) -> Tuple[float, float]:
     band = TARIFF_BANDS[usage_key]
     elec_kwh_y = band["intensity_per_year"]["elec_kwh_per_m2"] * (area_m2 or 0.0)
@@ -31,18 +28,15 @@ def monthly_energy_costs(workshop_hours: float, area_m2: float, usage_key: str) 
     gas_fix_m  = gas_daily  * CFG.DAYS_PER_MONTH  # not apportioned
     return elec_var_m + elec_fix_m, gas_var_m + gas_fix_m
 
-
 def monthly_water_costs(num_prisoners: int, num_supervisors: int, customer_covers_supervisors: bool, usage_key: str) -> float:
     band = TARIFF_BANDS[usage_key]
     persons = int(num_prisoners) + (0 if customer_covers_supervisors else int(num_supervisors))
     m3_per_year = persons * band["intensity_per_year"]["water_m3_per_employee"]
     return (m3_per_year / 12.0) * float(st.session_state["water_rate"])
 
-
 def monthly_maintenance(workshop_hours: float, area_m2: float, usage_key: str) -> float:
     hscale = hours_scale(workshop_hours) if CFG.APPORTION_MAINTENANCE else 1.0
     method = st.session_state.get("maint_method", "£/m² per year (industry standard)")
-
     if str(method).startswith("£/m² per year"):
         rate = st.session_state.get("maint_rate_per_m2_y", TARIFF_BANDS[usage_key]["intensity_per_year"]["maint_gbp_per_m2"])
         base_m = (float(rate) * (area_m2 or 0.0)) / 12.0
@@ -53,7 +47,6 @@ def monthly_maintenance(workshop_hours: float, area_m2: float, usage_key: str) -
         pct = float(st.session_state.get("reinstate_pct", 0.0))
         base_m = (reinstate_val * (pct / 100.0)) / 12.0
     return base_m * hscale
-
 
 def weekly_overheads_total(
     workshop_hours: float,
@@ -78,13 +71,11 @@ def weekly_overheads_total(
     }
     return weekly, detail
 
-
-# -------- Helpers --------
+# ----------- Helpers -----------
 def labour_minutes_budget(num_pris: int, hours: float) -> float:
     return max(0.0, float(num_pris) * float(hours) * 60.0)
 
-
-# -------- Contractual calculator (with Development charge) --------
+# ----------- Contractual calculator (with Development charge) -----------
 def calculate_production_contractual(
     items: List[Dict],
     output_pct: int,
@@ -102,42 +93,72 @@ def calculate_production_contractual(
     num_prisoners: int,
     num_supervisors: int,
     dev_rate: float,  # 0..0.2 (or 0..anything you set)
+    pricing_mode: str = "as-is",          # "as-is" (max units) or "target"
+    targets: Optional[List[int]] = None,  # per-item target units/week if pricing_mode == "target"
 ) -> List[Dict]:
     overheads_weekly, _ = weekly_overheads_total(
         workshop_hours, area_m2, usage_key, num_prisoners, num_supervisors, customer_covers_supervisors
     )
     dev_weekly_total = (overheads_weekly * float(dev_rate)) if customer_type == "Commercial" else 0.0
-
     inst_weekly_total = (
         sum((s / 52.0) * (float(effective_pct) / 100.0) for s in supervisor_salaries)
         if not customer_covers_supervisors else 0.0
     )
 
+    # Denominator for share-of-time apportionment
     denom = sum(int(it.get("assigned", 0)) * workshop_hours * 60.0 for it in items)
+    output_scale = float(output_pct) / 100.0
 
-    results = []
+    results: List[Dict] = []
     for idx, it in enumerate(items):
         name = (it.get("name") or "").strip() or f"Item {idx+1}"
         mins_per_unit = float(it.get("minutes", 0))
         pris_required = int(it.get("required", 1))
         pris_assigned = int(it.get("assigned", 0))
 
+        # Capacity @100%, then @ planned Output%
         if pris_assigned > 0 and mins_per_unit > 0 and pris_required > 0 and workshop_hours > 0:
             cap_100 = (pris_assigned * workshop_hours * 60.0) / (mins_per_unit * pris_required)
         else:
             cap_100 = 0.0
-        actual_units = cap_100 * (float(output_pct) / 100.0)
+        capacity_units = cap_100 * output_scale  # units/week at planned Output%
+
+        # Share of time for apportionment
         share = ((pris_assigned * workshop_hours * 60.0) / denom) if denom > 0 else 0.0
 
-        prisoner_weekly_item   = pris_assigned * prisoner_salary
-        inst_weekly_item       = inst_weekly_total * share
-        overheads_weekly_item  = overheads_weekly * share
-        dev_weekly_item        = dev_weekly_total * share
-
+        # Weekly cost components for this item
+        prisoner_weekly_item = pris_assigned * prisoner_salary
+        inst_weekly_item = inst_weekly_total * share
+        overheads_weekly_item = overheads_weekly * share
+        dev_weekly_item = dev_weekly_total * share
         weekly_cost_item = prisoner_weekly_item + inst_weekly_item + overheads_weekly_item + dev_weekly_item
-        unit_cost_ex_vat = (weekly_cost_item / actual_units) if actual_units > 0 else None
-        unit_price_ex_vat = unit_cost_ex_vat
 
+        # Units for pricing
+        if pricing_mode == "target":
+            target_units = 0
+            if targets and idx < len(targets):
+                try:
+                    target_units = int(targets[idx])
+                except Exception:
+                    target_units = 0
+            units_for_pricing = float(target_units)
+        else:
+            units_for_pricing = capacity_units
+
+        # Feasibility check (like Ad‑hoc spirit, but non-blocking here)
+        available_minutes_item = pris_assigned * workshop_hours * 60.0 * output_scale
+        required_minutes_item = units_for_pricing * mins_per_unit * pris_required
+        feasible = (required_minutes_item <= (available_minutes_item + 1e-6))
+        note = None
+        if pricing_mode == "target" and not feasible:
+            note = (
+                f"Target requires {required_minutes_item:,.0f} mins vs "
+                f"available {available_minutes_item:,.0f} mins; exceeds capacity."
+            )
+
+        # Unit pricing
+        unit_cost_ex_vat = (weekly_cost_item / units_for_pricing) if units_for_pricing > 0 else None
+        unit_price_ex_vat = unit_cost_ex_vat
         if unit_price_ex_vat is not None and (customer_type == "Commercial" and apply_vat):
             unit_price_inc_vat = unit_price_ex_vat * (1 + (float(vat_rate) / 100.0))
         else:
@@ -146,16 +167,18 @@ def calculate_production_contractual(
         results.append({
             "Item": name,
             "Output %": int(output_pct),
-            "Units/week": 0 if actual_units <= 0 else int(round(actual_units)),
+            "Pricing mode": "Target units/week" if pricing_mode == "target" else "As‑is (max units)",
+            "Capacity (units/week)": 0 if capacity_units <= 0 else int(round(capacity_units)),
+            "Units/week": 0 if units_for_pricing <= 0 else int(round(units_for_pricing)),
             "Unit Cost (£)": unit_cost_ex_vat,
             "Unit Price ex VAT (£)": unit_price_ex_vat,
             "Unit Price inc VAT (£)": unit_price_inc_vat,
+            "Feasible": feasible if pricing_mode == "target" else None,
+            "Note": note,
         })
-
     return results
 
-
-# -------- Ad‑hoc calculator (with Development charge) --------
+# ----------- Ad‑hoc calculator (unchanged) -----------
 def _working_days_between(start: date, end: date) -> int:
     if end < start: return 0
     days, d = 0, start
@@ -163,7 +186,6 @@ def _working_days_between(start: date, end: date) -> int:
         if d.weekday() < 5: days += 1
         d += timedelta(days=1)
     return days
-
 
 def calculate_adhoc(
     lines: List[Dict],
@@ -191,7 +213,6 @@ def calculate_adhoc(
 
     overheads_weekly, _ = weekly_overheads_total(workshop_hours, area_m2, usage_key, num_prisoners, 0, customer_covers_supervisors)
     dev_weekly_total = (overheads_weekly * float(dev_rate)) if customer_type == "Commercial" else 0.0
-
     inst_weekly_total = (
         sum((s / 52.0) * (float(effective_pct) / 100.0) for s in supervisor_salaries)
         if not customer_covers_supervisors else 0.0
@@ -211,11 +232,9 @@ def calculate_adhoc(
 
         total_line_minutes = int(ln["units"]) * mins_per_unit
         total_job_minutes += total_line_minutes
-
         wd_available = _working_days_between(today, ln["deadline"])
         if earliest_wd_available is None or wd_available < earliest_wd_available:
             earliest_wd_available = wd_available
-
         wd_needed_line_alone = math.ceil(total_line_minutes / current_daily_capacity) if current_daily_capacity > 0 else float("inf")
 
         per_line.append({
