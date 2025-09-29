@@ -1,8 +1,4 @@
 # style.py
-# Minimal styling to keep your original look, widen the sidebar,
-# apply GOV.UK green/yellow to buttons and sliders,
-# and provide a tidy header row style for the in‑body logo+title.
-
 import streamlit as st
 
 def inject_govuk_css() -> None:
@@ -23,11 +19,11 @@ def inject_govuk_css() -> None:
 
           /* GOV.UK colours */
           :root {
-            --govuk-green: #00703c;  /* Button green */
-            --govuk-yellow: #ffdd00; /* Focus yellow */
+            --govuk-green: #00703c;
+            --govuk-yellow: #ffdd00;
           }
 
-          /* Buttons: keep Streamlit look, just recolour */
+          /* Buttons */
           .stButton > button {
             background: var(--govuk-green) !important;
             color: #fff !important;
@@ -42,7 +38,7 @@ def inject_govuk_css() -> None:
             box-shadow: 0 0 0 1px #000 inset !important;
           }
 
-          /* Sliders: colour the handle and focus ring */
+          /* Sliders */
           [data-testid="stSlider"] [role="slider"] {
             background: var(--govuk-green) !important;
             border: 2px solid var(--govuk-green) !important;
@@ -54,7 +50,6 @@ def inject_govuk_css() -> None:
             outline-offset: 0 !important;
             box-shadow: 0 0 0 1px #000 inset !important;
           }
-          /* Tint the filled track (best-effort across versions) */
           [data-testid="stSlider"] div[aria-hidden="true"] > div > div {
             background-color: var(--govuk-green) !important;
           }
@@ -62,9 +57,9 @@ def inject_govuk_css() -> None:
           /* In-body header (logo + title) */
           .govuk-heading-l { font-weight: 700; font-size: 1.75rem; line-height: 1.2; }
           .app-header { display:flex; align-items:center; gap:12px; margin: 0.25rem 0 0.75rem 0; }
-          .app-header .app-logo { height: 56px; width: auto; display:block; } /* <— bigger logo */
+          .app-header .app-logo { height: 56px; width: auto; display:block; }
 
-          /* Tidy tables in the app body */
+          /* Tables in the app body */
           table { width:100%; border-collapse: collapse; margin: 12px 0; }
           th, td { border-bottom: 1px solid #b1b4b6; padding: 8px; text-align: left; }
           th { background: #f3f2f1; }
