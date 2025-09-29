@@ -31,7 +31,7 @@ HEADER_LOGO_PX = 128  # <--- change this number to your preferred logo size (e.g
 
 def _auto_logo_b64() -> str | None:
     """Find the first existing logo file and return Base64 string, else None."""
-    candidates = ["NFN-new-logo.png", "image.png", "logo.png"]
+    candidates = ["NFN-new-logo.png"]
     here = Path(__file__).parent
     for fn in candidates:
         p = here / fn
@@ -554,3 +554,4 @@ if st.button("Reset Selections", key="reset_app_footer"):
         st.rerun()
     except Exception:
         st.experimental_rerun()
+
