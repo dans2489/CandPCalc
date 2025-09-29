@@ -1,5 +1,4 @@
 # newapp.py
-# UI shell: short, robust. Sidebar is in sidebar.py; calculations in production.py/host.py.
 from io import BytesIO
 from datetime import date
 from pathlib import Path
@@ -16,36 +15,26 @@ from host import generate_host_quote
 
 # ---- Page config
 st.set_page_config(page_title="Cost and Price Calculator", page_icon="💷", layout="centered")
+
+# ---- Streamlit header logo (v1.35+); fallback safe
+try:
+    st.logo(str(Path(__file__).parent / "NFN-new-logo.png"), size="large")  # top-left app chrome
+except AttributeError:
+    pass  # older Streamlit: st.logo not available; we still show an in-body header below
+
+# ---- CSS
 inject_govuk_css()
 
-# ---- Load NFN logo (in same folder as newapp.py)
-def _load_logo_b64(filename: str = "NFN-new-logo.png"):
-    """
-    Return base64-encoded string for the NFN logo, or None if not found.
-    Searches the current file's directory.
-    """
-    try:
-        p = Path(__file__).parent / filename
-        if p.exists():
-            return base64.b64encode(p.read_bytes()).decode("utf-8")
-    except Exception:
-        pass
-    return None
+# ---- In-body header (logo + title)
+_logo_path = Path(__file__).parent / "NFN-new-logo.png"
+c1, c2 = st.columns([1, 12])
+with c1:
+    if _logo_path.exists():
+        st.image(str(_logo_path), width=40)
+with c2:
+    st.markdown("## Cost and Price Calculator")
 
-_logo_b64 = _load_logo_b64()
-
-# ---- Branded header
-st.markdown(
-    f"""
-    <div class="app-header">
-        {f'data:image/png;base64,{_logo_b64}' if _logo_b64 else ''}
-        <h1 class="govuk-heading-l" style="margin:0">Cost and Price Calculator</h1>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
-# ---- Render/export helpers
+# ---- Helpers
 def _currency(v) -> str:
     try: return f"£{float(v):,.2f}"
     except Exception: return ""
@@ -80,10 +69,15 @@ def render_generic_df_to_html(df: pd.DataFrame) -> str:
 def export_csv_bytes(df: pd.DataFrame) -> BytesIO:
     b = BytesIO(); df.to_csv(b, index=False); b.seek(0); return b
 
-def export_html(host_df: pd.DataFrame or None,
-                prod_df: pd.DataFrame or None,
+def _read_logo_b64() -> str | None:
+    if _logo_path.exists():
+        return base64.b64encode(_logo_path.read_bytes()).decode("utf-8")
+    return None
+
+def export_html(host_df: pd.DataFrame | None,
+                prod_df: pd.DataFrame | None,
                 title: str = "Quote",
-                logo_b64: str = None) -> BytesIO:
+                logo_b64: str | None = None) -> BytesIO:
     css = """
     <style>
       body{font-family:Arial,Helvetica,sans-serif;color:#0b0c0c;}
@@ -167,7 +161,7 @@ workshop_usage = st.radio(
     ["Low usage", "Medium usage", "High usage"],
     horizontal=True,
     key="workshop_usage",
-    help=USAGE_HELP_MD,  # <-- the ? appears here
+    help=USAGE_HELP_MD,
 )
 USAGE_KEY = ("low" if "Low" in workshop_usage else "medium" if "Medium" in workshop_usage else "high")
 
@@ -176,7 +170,7 @@ draw_sidebar(USAGE_KEY)
 
 # Hours / staffing & instructors
 workshop_hours = st.number_input("How many hours per week is the workshop open?", min_value=0.0, format="%.2f", key="workshop_hours")
-num_prisoners = st.number_input("How many prisoners employed?", min_value=0, step=1, key="num_prisoners")
+num_prisoners   = st.number_input("How many prisoners employed?", min_value=0, step=1, key="num_prisoners")
 prisoner_salary = st.number_input("Prisoner salary per week (£)", min_value=0.0, format="%.2f", key="prisoner_salary")
 num_supervisors = st.number_input("How many instructors?", min_value=0, step=1, key="num_supervisors")
 customer_covers_supervisors = st.checkbox("Customer provides instructor(s)?", key="customer_covers_supervisors")
@@ -209,7 +203,7 @@ if chosen_pct < int(round(recommended_pct)):
 else:
     effective_pct = int(chosen_pct) if st.session_state.get("alloc_action") == "Set new" else int(round(recommended_pct))
 
-# Employment support -> Development charge (Host & Production)
+# Employment support -> Development charge
 dev_rate = 0.0
 if customer_type == "Commercial":
     support = st.selectbox(
@@ -221,7 +215,7 @@ if customer_type == "Commercial":
     elif support in ("Employment on release/RoTL", "Post release"): dev_rate = 0.10
     else: dev_rate = 0.00
 
-# Pricing (Commercial): VAT only
+# Pricing (Commercial): VAT
 st.markdown("---")
 st.subheader("Pricing (Commercial)")
 colp1, colp2 = st.columns([1, 1])
@@ -230,7 +224,7 @@ with colp1:
 with colp2:
     vat_rate = st.number_input("VAT rate %", min_value=0.0, max_value=100.0, value=20.0, step=0.5, format="%.1f", key="vat_rate")
 
-# ---- Validation
+# Validation
 def validate_inputs():
     errors = []
     if prison_choice == "Select": errors.append("Select prison")
@@ -249,7 +243,7 @@ def validate_inputs():
         if any(s <= 0 for s in supervisor_salaries): errors.append("Instructor Avg Total must be > 0")
     return errors
 
-# ---- HOST branch
+# HOST
 def run_host():
     errors_top = validate_inputs()
     if st.button("Generate Costs"):
@@ -277,11 +271,11 @@ def run_host():
         with c2:
             st.download_button(
                 "Download PDF-ready HTML (Host)",
-                data=export_html(host_df, None, title="Host Quote", logo_b64=_logo_b64),
+                data=export_html(host_df, None, title="Host Quote", logo_b64=_read_logo_b64()),
                 file_name="host_quote.html", mime="text/html"
             )
 
-# ---- PRODUCTION branch
+# PRODUCTION
 def run_production():
     errors_top = validate_inputs()
     if errors_top:
@@ -290,7 +284,6 @@ def run_production():
     st.markdown("---")
     st.subheader("Production settings")
 
-    # Output slider scales BOTH planned available and planned used minutes
     planned_output_pct = st.slider(
         "Planned Output (%)", min_value=0, max_value=100, value=CFG.GLOBAL_OUTPUT_DEFAULT,
         help="Scales both planned available and planned used labour minutes."
@@ -304,7 +297,6 @@ def run_production():
     )
 
     if prod_type == "Contractual work":
-        # Price mode
         pricing_mode_label = st.radio(
             "Price based on:",
             ["As‑is (maximum units from capacity)", "Target units per week"],
@@ -313,15 +305,12 @@ def run_production():
         )
         pricing_mode = "as-is" if pricing_mode_label.startswith("As‑is") else "target"
 
-        # Planned available minutes
         budget_minutes_raw = labour_minutes_budget(int(num_prisoners), float(workshop_hours))
         budget_minutes_planned = budget_minutes_raw * output_scale
         st.markdown(f"**Planned available Labour minutes @ {planned_output_pct}%:** {budget_minutes_planned:,.0f}")
 
-        # Items
         num_items = st.number_input("Number of items produced?", min_value=1, value=1, step=1, key="num_items_prod")
-        items = []
-        targets = []  # for pricing_mode == "target"
+        items, targets = [], []
         for i in range(int(num_items)):
             with st.expander(f"Item {i+1} details", expanded=(i == 0)):
                 name = st.text_input(f"Item {i+1} Name", key=f"name_{i}")
@@ -337,7 +326,6 @@ def run_production():
                     step=1, key=f"assigned_{i}"
                 )
 
-                # Preview @100%
                 if assigned > 0 and minutes_per > 0 and required > 0 and workshop_hours > 0:
                     cap_100 = (assigned * workshop_hours * 60.0) / (minutes_per * required)
                 else:
@@ -345,7 +333,6 @@ def run_production():
                 cap_planned = cap_100 * output_scale
                 st.markdown(f"{disp} capacity @ 100%: **{cap_100:.0f} units/week** · @ {planned_output_pct}%: **{cap_planned:.0f}**")
 
-                # Target units input if target mode
                 if pricing_mode == "target":
                     target_default = int(round(cap_planned)) if cap_planned > 0 else 0
                     tgt = st.number_input(f"Target units per week ({disp})", min_value=0, value=target_default, step=1, key=f"target_{i}")
@@ -383,18 +370,13 @@ def run_production():
             targets=targets if pricing_mode == "target" else None,
         )
 
-        # Defensive minutes check:
-        # For "as-is" keep strict check; for "target" warn but do not block.
         units_minutes = 0.0
         warnings = []
         for r, it in zip(results, items):
             units = r.get("Units/week", 0) or 0
             units_minutes += float(units) * float(it["minutes"]) * float(it["required"])
-
-            if pricing_mode == "target":
-                # Warn if target exceeds available for that item
-                if r.get("Feasible") is False:
-                    warnings.append(f"• {r['Item']}: {r.get('Note')}")
+            if pricing_mode == "target" and r.get("Feasible") is False:
+                warnings.append(f"• {r['Item']}: {r.get('Note')}")
 
         if pricing_mode == "as-is":
             if units_minutes > used_minutes_planned + 1e-6:
@@ -403,10 +385,8 @@ def run_production():
             if warnings:
                 st.warning("Some targets exceed available minutes at the current plan:\n" + "\n".join(warnings))
 
-        # Build DF (include feasibility columns when present)
         display_cols = ["Item", "Output %", "Pricing mode", "Capacity (units/week)", "Units/week",
                         "Unit Cost (£)", "Unit Price ex VAT (£)", "Unit Price inc VAT (£)"]
-        # Add feasibility cols if target mode
         if pricing_mode == "target":
             display_cols += ["Feasible", "Note"]
 
@@ -422,7 +402,7 @@ def run_production():
         with d2:
             st.download_button(
                 "Download PDF-ready HTML (Production)",
-                data=export_html(None, prod_df, title="Production Quote", logo_b64=_logo_b64),
+                data=export_html(None, prod_df, title="Production Quote", logo_b64=_read_logo_b64()),
                 file_name="production_quote.html", mime="text/html"
             )
 
@@ -511,4 +491,3 @@ if st.button("Reset Selections", key="reset_app_footer"):
     for k in list(st.session_state.keys()): del st.session_state[k]
     try: st.rerun()
     except Exception: st.experimental_rerun()
-st.markdown('\n', unsafe_allow_html=True)
