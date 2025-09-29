@@ -102,10 +102,38 @@ area_m2 = area_ft2 * CFG.FT2_TO_M2 if area_ft2 else 0.0
 if area_ft2:
     st.markdown(f"Calculated area: **{area_ft2:,.0f} ft²** · **{area_m2:,.0f} m²**")
 
-# Usage band
-workshop_usage = st.radio("Workshop usage tariff", ["Low usage", "Medium usage", "High usage"], horizontal=True, key="workshop_usage")
+# ---- Usage band (with ? help tooltip) ----
+USAGE_HELP_MD = """
+**Low usage**  
+*Heated & lit; minimal machinery.*  
+- Typical spaces: classrooms, offices, meeting rooms, basic storage  
+- Energy: lighting, heating, very light plug/process loads (laptops, printers, kettles)  
+- Water: mainly cleaning/handwashing and basic needs
+
+**Medium usage**  
+*Light industrial.*  
+- Typical spaces: workshops with intermittent small machinery, craft rooms, light assembly, kitchens  
+- Energy: lighting, heating, IT, regular use of small/medium tools or machinery  
+- Processes: mixed light industrial work; not continuous or heavy-duty  
+- Water: for production processes, cleaning, and staff/prisoner needs
+
+**High usage**  
+*Machinery-heavy or continuous processes.*  
+- Typical spaces: engineering shops, manufacturing lines, laundry, large kitchens, heavy assembly  
+- Energy: higher electricity/gas due to continuous/heavy machinery (ovens, compressors, welders)  
+- Processes: long-running or continuous machine time; significant plug/process loads  
+- Water: intensive use for production, cleaning, and possibly cooling
+"""
+
+workshop_usage = st.radio(
+    "Workshop usage tariff",
+    ["Low usage", "Medium usage", "High usage"],
+    horizontal=True,
+    key="workshop_usage",
+    help=USAGE_HELP_MD,   # <-- the ? appears here
+)
+
 USAGE_KEY = ("low" if "Low" in workshop_usage else "medium" if "Medium" in workshop_usage else "high")
-st.caption("**Low** – heated & lit • **Medium** – light industrial • **High** – machinery‑heavy")
 
 # Sidebar (rates/maintenance/admin)
 draw_sidebar(USAGE_KEY)
@@ -411,3 +439,4 @@ if st.button("Reset Selections", key="reset_app_footer"):
     try: st.rerun()
     except Exception: st.experimental_rerun()
 st.markdown('\n', unsafe_allow_html=True)
+
