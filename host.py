@@ -8,8 +8,11 @@ import pandas as pd
 import streamlit as st
 
 from config import CFG
-from production import monthly_energy_costs, monthly_water_costs, monthly_maintenance
-
+from production import (
+    monthly_energy_costs,
+    monthly_water_costs,
+    monthly_maintenance,
+)
 
 def generate_host_quote(
     *,
@@ -25,12 +28,12 @@ def generate_host_quote(
     customer_type: str,
     apply_vat: bool,
     vat_rate: float,
-    dev_applied_rate: float,  # <-- passed from UI (same question as Production)
+    dev_rate: float,
 ) -> Tuple[pd.DataFrame, Dict]:
     """
     Builds a monthly Host breakdown DataFrame and returns (df, context_dict).
     Standing charges are not apportioned; variable energy and maintenance are apportioned by hours.
-    Includes Development charge per 'employment support' selection (Commercial only).
+    Development charge follows the same employment-support rules and may be 0%.
     """
     breakdown = {}
 
@@ -57,9 +60,11 @@ def generate_host_quote(
 
     overheads_subtotal = elec_m + gas_m + water_m + admin_m + maint_m
 
-    # Development charge (Commercial only) — same logic as Production
-    dev_applied_m = overheads_subtotal * (float(dev_applied_rate) if customer_type == "Commercial" else 0.0)
-    breakdown["Development charge (applied)"] = dev_applied_m
+    # Development charge (Commercial only)
+    if customer_type == "Commercial":
+        breakdown["Development charge (applied)"] = overheads_subtotal * float(dev_rate)
+    else:
+        breakdown["Development charge (applied)"] = 0.0
 
     subtotal = sum(breakdown.values())
     vat_amount = (subtotal * (float(vat_rate) / 100.0)) if (customer_type == "Commercial" and apply_vat) else 0.0
