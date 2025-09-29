@@ -1,5 +1,4 @@
 # host.py
-# Host monthly breakdown; Development charge uses same question as Production.
 from typing import List, Dict, Tuple
 import pandas as pd
 import streamlit as st
@@ -20,7 +19,7 @@ def generate_host_quote(
     customer_type: str,
     apply_vat: bool,
     vat_rate: float,
-    dev_rate: float,  # 0..0.2 (or your chosen scale)
+    dev_rate: float,
 ) -> Tuple[pd.DataFrame, Dict]:
     breakdown: Dict[str, float] = {}
     breakdown["Prisoner wages"] = float(num_prisoners) * float(prisoner_salary) * (52.0 / 12.0)
@@ -36,9 +35,9 @@ def generate_host_quote(
     admin_m = float(st.session_state.get("admin_monthly", CFG.DEFAULT_ADMIN_MONTHLY))
 
     breakdown["Electricity (estimated)"] = elec_m
-    breakdown["Gas (estimated)"] = gas_m
-    breakdown["Water (estimated)"] = water_m
-    breakdown["Administration"] = admin_m
+    breakdown["Gas (estimated)"]        = gas_m
+    breakdown["Water (estimated)"]      = water_m
+    breakdown["Administration"]         = admin_m
     breakdown["Depreciation/Maintenance (estimated)"] = maint_m
 
     overheads_subtotal = elec_m + gas_m + water_m + admin_m + maint_m
