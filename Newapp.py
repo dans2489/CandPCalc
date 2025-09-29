@@ -379,24 +379,28 @@ def item_capacity_100(prisoners_assigned: int, minutes_per_item: float, prisoner
     return (prisoners_assigned * hours * 60.0) / (minutes_per_item * prisoners_required)
 
 # Production pricing (Contractual) — takes output_pct as a parameter
-def calculate_production_contractual(items, default_assigned: int, output_pct: int):
+def calculate_production_contractual(items, output_pct: int):
+    """
+    items: list of dicts with keys: name, required (int), minutes (float), assigned (int)
+    Uses global Output (%) and per‑item prisoners assigned.
+    """
     overheads_weekly, _detail = weekly_overheads_total()
     inst_weekly_total = (
         sum((s / 52) * (effective_pct / 100) for s in supervisor_salaries)
         if not customer_covers_supervisors else 0.0
     )
 
-    # Denominator for apportionment (sum of assigned minutes)
-    denom = sum(int(default_assigned) * workshop_hours * 60.0 for _ in items)
+    # Apportionment denominator = sum of (assigned × weekly hours × 60)
+    denom = sum(int(it.get("assigned", 0)) * workshop_hours * 60.0 for it in items)
 
     results = []
     for idx, item in enumerate(items):
         name = (item.get("name", "") or "").strip() or f"Item {idx+1}"
         mins_per_unit = float(item.get("minutes", 0))
         prisoners_required = int(item.get("required", 1))
-        prisoners_assigned = int(default_assigned)
+        prisoners_assigned = int(item.get("assigned", 0))
 
-        # Weekly capacity at 100% for this line
+        # Weekly capacity at 100%
         if prisoners_assigned > 0 and mins_per_unit > 0 and prisoners_required > 0 and workshop_hours > 0:
             cap_100 = (prisoners_assigned * workshop_hours * 60.0) / (mins_per_unit * prisoners_required)
         else:
@@ -432,7 +436,7 @@ def calculate_production_contractual(items, default_assigned: int, output_pct: i
             "Unit Price ex VAT (£)": unit_price_ex_vat,
             "Unit Price inc VAT (£)": unit_price_inc_vat,
         })
-    return results
+        return results
 
 # ----------------------------
 # HOST branch
@@ -494,21 +498,18 @@ def generate_host():
 # PRODUCTION branch
 # ----------------------------
 def production_contractual(output_pct: int):
-    # (Caption removed per request)
+    # (Caption removed per your request)
     budget_minutes = labour_minutes_budget(num_prisoners, workshop_hours)
     st.markdown(f"As per your selected resources you have **{budget_minutes:,.0f} Labour minutes** available this week.")
 
     num_items = st.number_input("Number of items produced?", min_value=1, value=1, step=1, key="num_items_prod")
-    default_assigned = st.number_input(
-        "Prisoners assigned per item (default for all items)",
-        min_value=0, max_value=int(num_prisoners), value=0, step=1, key="default_assigned"
-    )
 
     items = []
     for i in range(int(num_items)):
         with st.expander(f"Item {i+1} details", expanded=(i == 0)):
             name = st.text_input(f"Item {i+1} Name", key=f"name_{i}")
             display_name = (name.strip() or f"Item {i+1}") if isinstance(name, str) else f"Item {i+1}"
+
             prisoners_required = st.number_input(
                 f"Prisoners required to make 1 item ({display_name})",
                 min_value=1, value=1, step=1, key=f"req_{i}"
@@ -518,16 +519,24 @@ def production_contractual(output_pct: int):
                 min_value=1.0, value=10.0, format="%.2f", key=f"mins_{i}"
             )
 
-            # Preview capacity @100% using the global default assigned
-            if default_assigned > 0 and minutes_per_item > 0 and prisoners_required > 0 and workshop_hours > 0:
-                cap_preview = (default_assigned * workshop_hours * 60.0) / (minutes_per_item * prisoners_required)
+            # 🔁 PER‑ITEM ASSIGNMENT (back to original behaviour)
+            prisoners_assigned = st.number_input(
+                f"How many prisoners work solely on this item ({display_name})",
+                min_value=0, max_value=int(num_prisoners), value=0, step=1, key=f"assigned_{i}"
+            )
+
+            # Preview capacity @ 100% for this item (uses per‑item assignment)
+            if prisoners_assigned > 0 and minutes_per_item > 0 and prisoners_required > 0 and workshop_hours > 0:
+                cap_preview = (prisoners_assigned * workshop_hours * 60.0) / (minutes_per_item * prisoners_required)
             else:
                 cap_preview = 0.0
             st.markdown(f"{display_name} capacity @ 100%: **{cap_preview:.0f} units/week**")
 
             items.append({
-                "name": name, "required": int(prisoners_required),
-                "minutes": float(minutes_per_item)
+                "name": name,
+                "required": int(prisoners_required),
+                "minutes": float(minutes_per_item),
+                "assigned": int(prisoners_assigned),
             })
 
     errs = validate_inputs()
@@ -535,16 +544,17 @@ def production_contractual(output_pct: int):
         st.error("Fix errors before production calculations:\n- " + "\n- ".join(errs))
         return
 
-    used_minutes = sum(int(default_assigned) * workshop_hours * 60.0 for _ in items)
+    # Ensure total assigned does not exceed overall labour minutes
+    used_minutes = sum(int(it["assigned"]) * workshop_hours * 60.0 for it in items)
     st.markdown(f"**Used Labour minutes:** {used_minutes:,.0f} / {budget_minutes:,.0f}")
     if used_minutes > budget_minutes:
         st.error(
             "Assigned prisoners across items exceed the available weekly Labour minutes. "
-            "Reduce assigned count, add prisoners, or increase weekly hours."
+            "Reduce assigned counts, add prisoners, or increase weekly hours."
         )
         return
 
-    results = calculate_production_contractual(items, default_assigned, output_pct)
+    results = calculate_production_contractual(items, output_pct)
     prod_df = pd.DataFrame([{
         k: (None if r[k] is None else (round(float(r[k]), 2) if isinstance(r[k], (int, float)) else r[k]))
         for k in ["Item", "Output %", "Units/week", "Unit Cost (£)", "Unit Price ex VAT (£)", "Unit Price inc VAT (£)"]
@@ -760,3 +770,4 @@ if st.button("Reset Selections", key="reset_app_footer"):
     except Exception:
         st.experimental_rerun()
 st.markdown('\n', unsafe_allow_html=True)
+
