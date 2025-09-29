@@ -1,8 +1,9 @@
 # newapp.py
 # UI shell: short, robust. Sidebar is in sidebar.py; calculations in production.py/host.py.
-
 from io import BytesIO
 from datetime import date
+from pathlib import Path
+import base64
 import pandas as pd
 import streamlit as st
 
@@ -13,14 +14,38 @@ from sidebar import draw_sidebar
 from production import labour_minutes_budget, calculate_production_contractual, calculate_adhoc
 from host import generate_host_quote
 
-
-# ---- Page config ----
+# ---- Page config
 st.set_page_config(page_title="Cost and Price Calculator", page_icon="💷", layout="centered")
 inject_govuk_css()
-st.markdown("## Cost and Price Calculator")
 
+# ---- Load NFN logo (in same folder as newapp.py)
+def _load_logo_b64(filename: str = "NFN-new-logo.png"):
+    """
+    Return base64-encoded string for the NFN logo, or None if not found.
+    Searches the current file's directory.
+    """
+    try:
+        p = Path(__file__).parent / filename
+        if p.exists():
+            return base64.b64encode(p.read_bytes()).decode("utf-8")
+    except Exception:
+        pass
+    return None
 
-# ---- Render/export helpers ----
+_logo_b64 = _load_logo_b64()
+
+# ---- Branded header
+st.markdown(
+    f"""
+    <div class="app-header">
+        {f'data:image/png;base64,{_logo_b64}' if _logo_b64 else ''}
+        <h1 class="govuk-heading-l" style="margin:0">Cost and Price Calculator</h1>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+# ---- Render/export helpers
 def _currency(v) -> str:
     try: return f"£{float(v):,.2f}"
     except Exception: return ""
@@ -55,7 +80,10 @@ def render_generic_df_to_html(df: pd.DataFrame) -> str:
 def export_csv_bytes(df: pd.DataFrame) -> BytesIO:
     b = BytesIO(); df.to_csv(b, index=False); b.seek(0); return b
 
-def export_html(host_df: pd.DataFrame | None, prod_df: pd.DataFrame | None, title="Quote") -> BytesIO:
+def export_html(host_df: pd.DataFrame or None,
+                prod_df: pd.DataFrame or None,
+                title: str = "Quote",
+                logo_b64: str = None) -> BytesIO:
     css = """
     <style>
       body{font-family:Arial,Helvetica,sans-serif;color:#0b0c0c;}
@@ -63,22 +91,32 @@ def export_html(host_df: pd.DataFrame | None, prod_df: pd.DataFrame | None, titl
       th,td{border-bottom:1px solid #b1b4b6;padding:8px;text-align:left;}
       th{background:#f3f2f1;} td.neg{color:#d4351c;} tr.grand td{font-weight:700;}
       h1,h2,h3{margin:0.2rem 0;}
+      .doc-header{display:flex;align-items:center;gap:12px;margin:0.2rem 0 0.8rem 0;}
+      .doc-header img{height:36px;width:auto;display:block;}
+      .doc-header h2{margin:0;}
     </style>
+    """
+    header = f"""
+    <div class="doc-header">
+      {f'data:image/png;base64,{logo_b64}' if logo_b64 else ''}
+      <h2>{title}</h2>
+    </div>
     """
     meta = (f"<p>Date: {date.today().isoformat()}<br/>"
             f"Customer: {st.session_state.get('customer_name','')}<br/>"
             f"Prison: {st.session_state.get('prison_choice','')}<br/>"
             f"Region: {st.session_state.get('region','')}</p>")
-    parts = [css, f"<h2>{title}</h2>", meta]
-    if host_df is not None: parts += ["<h3>Host Costs</h3>", render_host_df_to_html(host_df)]
+
+    parts = [css, header, meta]
+    if host_df is not None:
+        parts += ["<h3>Host Costs</h3>", render_host_df_to_html(host_df)]
     if prod_df is not None:
         section_title = "Ad‑hoc Items" if "Ad‑hoc" in str(title) else "Production Items"
         parts += [f"<h3>{section_title}</h3>", render_generic_df_to_html(prod_df)]
     parts.append("<p>Prices are indicative and may change based on final scope and site conditions.</p>")
     b = BytesIO("".join(parts).encode("utf-8")); b.seek(0); return b
 
-
-# ---- Base inputs ----
+# ---- Base inputs
 prisons_sorted = ["Select"] + sorted(PRISON_TO_REGION.keys())
 prison_choice = st.selectbox("Prison Name", prisons_sorted, index=0, key="prison_choice")
 region = PRISON_TO_REGION.get(prison_choice, "Select") if prison_choice != "Select" else "Select"
@@ -90,7 +128,7 @@ workshop_mode = st.selectbox("Contract type?", ["Select", "Host", "Production"],
 
 # Workshop size (ft²)
 size_labels = ["Select", "Small (500 ft²)", "Medium (2,500 ft²)", "Large (5,000 ft²)", "Enter dimensions in ft"]
-size_map    = {"Small (500 ft²)": 500, "Medium (2,500 ft²)": 2500, "Large (5,000 ft²)": 5000}
+size_map = {"Small (500 ft²)": 500, "Medium (2,500 ft²)": 2500, "Large (5,000 ft²)": 5000}
 workshop_size = st.selectbox("Workshop size (sq ft)?", size_labels, key="workshop_size")
 if workshop_size == "Enter dimensions in ft":
     width = st.number_input("Width (ft)", min_value=0.0, format="%.2f", key="width")
@@ -102,47 +140,44 @@ area_m2 = area_ft2 * CFG.FT2_TO_M2 if area_ft2 else 0.0
 if area_ft2:
     st.markdown(f"Calculated area: **{area_ft2:,.0f} ft²** · **{area_m2:,.0f} m²**")
 
-# ---- Usage band (with ? help tooltip) ----
+# Usage band (with ? help tooltip)
 USAGE_HELP_MD = """
-**Low usage**  
-*Heated & lit; minimal machinery.*  
-- Typical spaces: classrooms, offices, meeting rooms, basic storage  
-- Energy: lighting, heating, very light plug/process loads (laptops, printers, kettles)  
+**Low usage**
+*Heated & lit; minimal machinery.*
+- Typical spaces: classrooms, offices, meeting rooms, basic storage
+- Energy: lighting, heating, very light plug/process loads (laptops, printers, kettles)
 - Water: mainly cleaning/handwashing and basic needs
 
-**Medium usage**  
-*Light industrial.*  
-- Typical spaces: workshops with intermittent small machinery, craft rooms, light assembly, kitchens  
-- Energy: lighting, heating, IT, regular use of small/medium tools or machinery  
-- Processes: mixed light industrial work; not continuous or heavy-duty  
+**Medium usage**
+*Light industrial.*
+- Typical spaces: workshops with intermittent small machinery, craft rooms, light assembly, kitchens
+- Energy: lighting, heating, IT, regular use of small/medium tools or machinery
+- Processes: mixed light industrial work; not continuous or heavy-duty
 - Water: for production processes, cleaning, and staff/prisoner needs
 
-**High usage**  
-*Machinery-heavy or continuous processes.*  
-- Typical spaces: engineering shops, manufacturing lines, laundry, large kitchens, heavy assembly  
-- Energy: higher electricity/gas due to continuous/heavy machinery (ovens, compressors, welders)  
-- Processes: long-running or continuous machine time; significant plug/process loads  
+**High usage**
+*Machinery-heavy or continuous processes.*
+- Typical spaces: engineering shops, manufacturing lines, laundry, large kitchens, heavy assembly
+- Energy: higher electricity/gas due to continuous/heavy machinery (ovens, compressors, welders)
+- Processes: long-running or continuous machine time; significant plug/process loads
 - Water: intensive use for production, cleaning, and possibly cooling
 """
-
 workshop_usage = st.radio(
     "Workshop usage tariff",
     ["Low usage", "Medium usage", "High usage"],
     horizontal=True,
     key="workshop_usage",
-    help=USAGE_HELP_MD,   # <-- the ? appears here
+    help=USAGE_HELP_MD,  # <-- the ? appears here
 )
-
 USAGE_KEY = ("low" if "Low" in workshop_usage else "medium" if "Medium" in workshop_usage else "high")
 
 # Sidebar (rates/maintenance/admin)
 draw_sidebar(USAGE_KEY)
 
 # Hours / staffing & instructors
-workshop_hours   = st.number_input("How many hours per week is the workshop open?", min_value=0.0, format="%.2f", key="workshop_hours")
-num_prisoners    = st.number_input("How many prisoners employed?", min_value=0, step=1, key="num_prisoners")
-prisoner_salary  = st.number_input("Prisoner salary per week (£)", min_value=0.0, format="%.2f", key="prisoner_salary")
-
+workshop_hours = st.number_input("How many hours per week is the workshop open?", min_value=0.0, format="%.2f", key="workshop_hours")
+num_prisoners = st.number_input("How many prisoners employed?", min_value=0, step=1, key="num_prisoners")
+prisoner_salary = st.number_input("Prisoner salary per week (£)", min_value=0.0, format="%.2f", key="prisoner_salary")
 num_supervisors = st.number_input("How many instructors?", min_value=0, step=1, key="num_supervisors")
 customer_covers_supervisors = st.checkbox("Customer provides instructor(s)?", key="customer_covers_supervisors")
 
@@ -170,11 +205,9 @@ if chosen_pct < int(round(recommended_pct)):
     action = st.radio("Apply allocation", ["Keep recommended", "Set new"], index=0, horizontal=True, key="alloc_action")
     if action == "Set new" and not str(reason).strip():
         st.error("Provide a brief explanation before setting a lower allocation.")
-        effective_pct = int(round(recommended_pct))
-    else:
-        effective_pct = int(chosen_pct) if action == "Set new" else int(round(recommended_pct))
-else:
     effective_pct = int(round(recommended_pct))
+else:
+    effective_pct = int(chosen_pct) if st.session_state.get("alloc_action") == "Set new" else int(round(recommended_pct))
 
 # Employment support -> Development charge (Host & Production)
 dev_rate = 0.0
@@ -197,8 +230,7 @@ with colp1:
 with colp2:
     vat_rate = st.number_input("VAT rate %", min_value=0.0, max_value=100.0, value=20.0, step=0.5, format="%.1f", key="vat_rate")
 
-
-# Validation
+# ---- Validation
 def validate_inputs():
     errors = []
     if prison_choice == "Select": errors.append("Select prison")
@@ -217,8 +249,7 @@ def validate_inputs():
         if any(s <= 0 for s in supervisor_salaries): errors.append("Instructor Avg Total must be > 0")
     return errors
 
-
-# HOST branch
+# ---- HOST branch
 def run_host():
     errors_top = validate_inputs()
     if st.button("Generate Costs"):
@@ -244,11 +275,13 @@ def run_host():
         with c1:
             st.download_button("Download CSV (Host)", data=export_csv_bytes(host_df), file_name="host_quote.csv", mime="text/csv")
         with c2:
-            st.download_button("Download PDF-ready HTML (Host)", data=export_html(host_df, None, title="Host Quote"),
-                               file_name="host_quote.html", mime="text/html")
+            st.download_button(
+                "Download PDF-ready HTML (Host)",
+                data=export_html(host_df, None, title="Host Quote", logo_b64=_logo_b64),
+                file_name="host_quote.html", mime="text/html"
+            )
 
-
-# PRODUCTION branch
+# ---- PRODUCTION branch
 def run_production():
     errors_top = validate_inputs()
     if errors_top:
@@ -271,6 +304,15 @@ def run_production():
     )
 
     if prod_type == "Contractual work":
+        # Price mode
+        pricing_mode_label = st.radio(
+            "Price based on:",
+            ["As‑is (maximum units from capacity)", "Target units per week"],
+            index=0,
+            help="As‑is uses the max units your assigned prisoners can produce at the chosen Output %. Target lets you enter desired units/week per item."
+        )
+        pricing_mode = "as-is" if pricing_mode_label.startswith("As‑is") else "target"
+
         # Planned available minutes
         budget_minutes_raw = labour_minutes_budget(int(num_prisoners), float(workshop_hours))
         budget_minutes_planned = budget_minutes_raw * output_scale
@@ -279,6 +321,7 @@ def run_production():
         # Items
         num_items = st.number_input("Number of items produced?", min_value=1, value=1, step=1, key="num_items_prod")
         items = []
+        targets = []  # for pricing_mode == "target"
         for i in range(int(num_items)):
             with st.expander(f"Item {i+1} details", expanded=(i == 0)):
                 name = st.text_input(f"Item {i+1} Name", key=f"name_{i}")
@@ -299,7 +342,14 @@ def run_production():
                     cap_100 = (assigned * workshop_hours * 60.0) / (minutes_per * required)
                 else:
                     cap_100 = 0.0
-                st.markdown(f"{disp} capacity @ 100%: **{cap_100:.0f} units/week**")
+                cap_planned = cap_100 * output_scale
+                st.markdown(f"{disp} capacity @ 100%: **{cap_100:.0f} units/week** · @ {planned_output_pct}%: **{cap_planned:.0f}**")
+
+                # Target units input if target mode
+                if pricing_mode == "target":
+                    target_default = int(round(cap_planned)) if cap_planned > 0 else 0
+                    tgt = st.number_input(f"Target units per week ({disp})", min_value=0, value=target_default, step=1, key=f"target_{i}")
+                    targets.append(int(tgt))
 
                 items.append({"name": name, "required": int(required), "minutes": float(minutes_per), "assigned": int(assigned)})
 
@@ -311,7 +361,7 @@ def run_production():
         used_minutes_planned = used_minutes_raw * output_scale
         st.markdown(f"**Planned used Labour minutes @ {planned_output_pct}%:** {used_minutes_planned:,.0f}")
 
-        if used_minutes_planned > budget_minutes_planned:
+        if pricing_mode == "as-is" and used_minutes_planned > budget_minutes_planned:
             st.error("Planned used minutes exceed planned available minutes. Adjust assignments, add prisoners, increase hours, or lower Output%."); return
 
         results = calculate_production_contractual(
@@ -329,30 +379,54 @@ def run_production():
             num_prisoners=int(num_prisoners),
             num_supervisors=int(num_supervisors),
             dev_rate=float(dev_rate),
+            pricing_mode=pricing_mode,
+            targets=targets if pricing_mode == "target" else None,
         )
 
-        # Defensive: units within planned minutes
+        # Defensive minutes check:
+        # For "as-is" keep strict check; for "target" warn but do not block.
         units_minutes = 0.0
+        warnings = []
         for r, it in zip(results, items):
             units = r.get("Units/week", 0) or 0
             units_minutes += float(units) * float(it["minutes"]) * float(it["required"])
-        if units_minutes > used_minutes_planned + 1e-6:
-            st.error("Total minutes implied by units exceed planned labour minutes. Re-check Output% and timings."); return
+
+            if pricing_mode == "target":
+                # Warn if target exceeds available for that item
+                if r.get("Feasible") is False:
+                    warnings.append(f"• {r['Item']}: {r.get('Note')}")
+
+        if pricing_mode == "as-is":
+            if units_minutes > used_minutes_planned + 1e-6:
+                st.error("Total minutes implied by units exceed planned labour minutes. Re-check Output% and timings."); return
+        else:
+            if warnings:
+                st.warning("Some targets exceed available minutes at the current plan:\n" + "\n".join(warnings))
+
+        # Build DF (include feasibility columns when present)
+        display_cols = ["Item", "Output %", "Pricing mode", "Capacity (units/week)", "Units/week",
+                        "Unit Cost (£)", "Unit Price ex VAT (£)", "Unit Price inc VAT (£)"]
+        # Add feasibility cols if target mode
+        if pricing_mode == "target":
+            display_cols += ["Feasible", "Note"]
 
         prod_df = pd.DataFrame([{
-            k: (None if r[k] is None else (round(float(r[k]), 2) if isinstance(r[k], (int, float)) else r[k]))
-            for k in ["Item", "Output %", "Units/week", "Unit Cost (£)", "Unit Price ex VAT (£)", "Unit Price inc VAT (£)"]
+            k: (None if r.get(k) is None else (round(float(r.get(k)), 2) if isinstance(r.get(k), (int, float)) else r.get(k)))
+            for k in display_cols
         } for r in results])
-        st.markdown(render_generic_df_to_html(prod_df), unsafe_allow_html=True)
 
+        st.markdown(render_generic_df_to_html(prod_df), unsafe_allow_html=True)
         d1, d2 = st.columns(2)
         with d1:
             st.download_button("Download CSV (Production)", data=export_csv_bytes(prod_df), file_name="production_quote.csv", mime="text/csv")
         with d2:
-            st.download_button("Download PDF-ready HTML (Production)", data=export_html(None, prod_df, title="Production Quote"),
-                               file_name="production_quote.html", mime="text/html")
+            st.download_button(
+                "Download PDF-ready HTML (Production)",
+                data=export_html(None, prod_df, title="Production Quote", logo_b64=_logo_b64),
+                file_name="production_quote.html", mime="text/html"
+            )
 
-    else:  # Ad-hoc
+    else:  # Ad‑hoc
         num_lines = st.number_input("How many product lines are needed?", min_value=1, value=1, step=1, key="adhoc_num_lines")
         lines = []
         for i in range(int(num_lines)):
@@ -398,7 +472,6 @@ def run_production():
                 dev_rate=float(dev_rate),
                 today=date.today(),
             )
-
             if result["feasibility"]["hard_block"]:
                 st.error(result["feasibility"]["reason"]); return
 
@@ -414,7 +487,8 @@ def run_production():
                     f"{(p['line_total_inc_vat'] if show_inc else p['line_total_ex_vat']):.2f}",
                 ])
             table_html = ["<table><tr>"] + [f"<th>{h}</th>" for h in col_headers] + ["</tr>"]
-            for r in data_rows: table_html.append("<tr>" + "".join(f"<td>{c}</td>" for c in r) + "</tr>")
+            for r in data_rows:
+                table_html.append("<tr>" + "".join(f"<td>{c}</td>" for c in r) + "</tr>")
             table_html.append("</table>")
             st.markdown("".join(table_html), unsafe_allow_html=True)
 
@@ -425,18 +499,16 @@ def run_production():
             else:
                 st.markdown(f"**Total Job Cost: £{totals['ex_vat']:,.2f}**")
 
-
-# MAIN
+# ---- MAIN
 if workshop_mode == "Host":
     run_host()
 elif workshop_mode == "Production":
     run_production()
 
-# Reset
+# ---- Reset
 st.markdown('\n', unsafe_allow_html=True)
 if st.button("Reset Selections", key="reset_app_footer"):
     for k in list(st.session_state.keys()): del st.session_state[k]
     try: st.rerun()
     except Exception: st.experimental_rerun()
 st.markdown('\n', unsafe_allow_html=True)
-
