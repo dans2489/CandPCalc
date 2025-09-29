@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 import math
 from datetime import date, timedelta
 
@@ -130,18 +130,18 @@ def calculate_production_contractual(
     usage_key: str,
     num_prisoners: int,
     num_supervisors: int,
+    dev_applied_rate: float,
 ) -> List[Dict]:
     """
-    Splits instructor time & overheads across items by **labour minutes** (assigned × hours × 60).
-    Per‑item **prisoner wages** are direct (assigned × prisoner_salary).
-    This means Unit Prices are **properly apportioned across all items**.
-
-    If you ever want ALL prisoner wages (for all prisoners) apportioned across items,
-    set per‑item assignments to sum to total prisoners or add an explicit pool allocator.
+    Splits instructor time, overheads **and development charge** across items by labour minutes.
+    Per‑item prisoner wages are direct (assigned × prisoner_salary).
     """
     overheads_weekly, _detail = weekly_overheads_total(
         workshop_hours, area_m2, usage_key, num_prisoners, num_supervisors, customer_covers_supervisors
     )
+
+    # Development charge (Commercial only); otherwise 0
+    dev_weekly_total = (overheads_weekly * float(dev_applied_rate)) if customer_type == "Commercial" else 0.0
 
     inst_weekly_total = (
         sum((s / 52.0) * (float(effective_pct) / 100.0) for s in supervisor_salaries)
@@ -170,11 +170,12 @@ def calculate_production_contractual(
         share = ((prisoners_assigned * workshop_hours * 60.0) / denom) if denom > 0 else 0.0
 
         # Weekly costs for this line
-        prisoner_weekly_item = prisoners_assigned * prisoner_salary
-        inst_weekly_item     = inst_weekly_total * share
-        overheads_weekly_item = overheads_weekly * share
+        prisoner_weekly_item   = prisoners_assigned * prisoner_salary
+        inst_weekly_item       = inst_weekly_total * share
+        overheads_weekly_item  = overheads_weekly * share
+        dev_weekly_item        = dev_weekly_total * share
 
-        weekly_cost_item = prisoner_weekly_item + inst_weekly_item + overheads_weekly_item
+        weekly_cost_item = prisoner_weekly_item + inst_weekly_item + overheads_weekly_item + dev_weekly_item
         unit_cost_ex_vat = (weekly_cost_item / actual_units) if actual_units > 0 else None
 
         # Unit price ex VAT = Unit cost, VAT optional for Commercial
@@ -226,7 +227,9 @@ def calculate_adhoc(
     vat_rate: float,
     area_m2: float,
     usage_key: str,
-    today: date | None = None,
+    num_supervisors: int,
+    dev_applied_rate: float,
+    today: Optional[date] = None,
 ) -> Dict:
     """
     Returns a dict with:
@@ -234,7 +237,7 @@ def calculate_adhoc(
       - totals: {ex_vat, inc_vat}
       - capacity: {current_daily_capacity, minutes_per_week_capacity}
       - feasibility: {earliest_wd_available, wd_needed_all, hard_block (bool), reason (str|None)}
-    Hard constraint enforced externally: caller can decide whether to block rendering when hard_block is True.
+    Enforces dev charge by including it in weekly costs.
     """
     today = today or date.today()
 
@@ -245,16 +248,18 @@ def calculate_adhoc(
     current_daily_capacity = num_prisoners * daily_minutes_capacity_per_prisoner
     minutes_per_week_capacity = max(1e-9, num_prisoners * workshop_hours * 60.0 * output_scale)
 
-    # Weekly costs -> cost per minute
+    # Weekly costs -> cost per minute (includes DEV charge)
     overheads_weekly, _detail = weekly_overheads_total(
-        workshop_hours, area_m2, usage_key, num_prisoners, 0, customer_covers_supervisors
+        workshop_hours, area_m2, usage_key, num_prisoners, num_supervisors, customer_covers_supervisors
     )
+    dev_weekly_total = (overheads_weekly * float(dev_applied_rate)) if customer_type == "Commercial" else 0.0
+
     inst_weekly_total = (
         sum((s / 52.0) * (float(effective_pct) / 100.0) for s in supervisor_salaries)
         if not customer_covers_supervisors else 0.0
     )
     prisoners_weekly_cost = num_prisoners * prisoner_salary
-    weekly_cost_total = prisoners_weekly_cost + inst_weekly_total + overheads_weekly
+    weekly_cost_total = prisoners_weekly_cost + inst_weekly_total + overheads_weekly + dev_weekly_total
     cost_per_minute = weekly_cost_total / minutes_per_week_capacity
 
     per_line: List[Dict] = []
