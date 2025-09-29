@@ -1,6 +1,11 @@
 # newapp.py
-# Streamlit app with GOV.UK-like styling and hour-apportioned costs (variable energy + maintenance).
-# Standing charges are NOT apportioned. Global Output % and single labour question for Contractual.
+# Streamlit app: original aesthetics + your requested logic changes.
+# - Standing charges NOT apportioned
+# - Variable energy + maintenance apportioned by hours
+# - Planned Output (%) only visible once Production is selected
+# - Single "Prisoners assigned per item (default)" for Contractual
+# - Ad‑hoc also uses Planned Output (%)
+# - Full utilisation hours are used from config (hidden)
 
 from __future__ import annotations
 
@@ -14,7 +19,7 @@ from config import CFG, hours_scale
 from style import inject_govuk_css
 from tariff import PRISON_TO_REGION, SUPERVISOR_PAY, TARIFF_BANDS
 
-# --- Page config
+# --- Page config (as in your original)
 st.set_page_config(page_title="Cost and Price Calculator", page_icon="💷", layout="centered")
 inject_govuk_css()
 
@@ -136,7 +141,7 @@ st.caption(
 )
 
 # ----------------------------
-# Sidebar — Tariffs & Overheads
+# Sidebar — Tariffs & Overheads (same inputs, just wider via CSS)
 # ----------------------------
 with st.sidebar:
     st.header("Tariffs & Overheads")
@@ -233,12 +238,6 @@ workshop_hours = st.number_input(
     help="Affects production capacity and apportionment.",
     key="workshop_hours",
 )
-full_week_hours = st.number_input(
-    "Full utilisation hours per week",
-    min_value=1.0, value=float(CFG.FULL_UTILISATION_WEEK), step=0.5,
-    help="Used to apportion variable energy and maintenance by hours.",
-    key="full_week_hours"
-)
 
 num_prisoners = st.number_input("How many prisoners employed?", min_value=0, step=1, key="num_prisoners")
 prisoner_salary = st.number_input("Prisoner salary per week (£)", min_value=0.0, format="%.2f", key="prisoner_salary")
@@ -277,17 +276,7 @@ else:
     effective_pct = int(round(recommended_pct))
 
 # ----------------------------
-# Global Output (%) — asked once for both Contractual & Ad‑hoc
-# ----------------------------
-st.markdown("---")
-st.subheader("Production settings")
-global_output_pct = st.slider(
-    "Planned Output (%)", min_value=0, max_value=100, value=CFG.GLOBAL_OUTPUT_DEFAULT,
-    help="How much of the theoretical capacity you plan to use (applies to Contractual and Ad‑hoc)."
-)
-
-# ----------------------------
-# Pricing (Commercial): VAT only
+# Pricing (Commercial): VAT only (caption removed as requested)
 # ----------------------------
 st.markdown("---")
 st.subheader("Pricing (Commercial)")
@@ -296,11 +285,6 @@ with colp1:
     apply_vat = st.checkbox("Apply VAT?", key="apply_vat")
 with colp2:
     vat_rate = st.number_input("VAT rate %", min_value=0.0, max_value=100.0, value=20.0, step=0.5, format="%.1f", key="vat_rate")
-st.caption(
-    "Unit pricing: Unit Cost includes labour + apportioned instructors + apportioned overheads. "
-    "No margin control: Unit Price ex VAT = Unit Cost. "
-    "If VAT is ticked and customer is Commercial, Unit Price inc VAT = ex VAT × (1 + VAT%)."
-)
 
 # ----------------------------
 # Validation
@@ -332,7 +316,7 @@ def monthly_energy_costs(area_m2: float) -> tuple[float, float]:
     elec_kwh_y = band["intensity_per_year"]["elec_kwh_per_m2"] * (area_m2 or 0.0)
     gas_kwh_y  = band["intensity_per_year"]["gas_kwh_per_m2"]  * (area_m2 or 0.0)
 
-    hscale = hours_scale(workshop_hours, full_week_hours)
+    hscale = hours_scale(workshop_hours)  # Full-utilisation pulled from config; not shown in UI
 
     elec_unit = float(st.session_state["electricity_rate"])
     gas_unit  = float(st.session_state["gas_rate"])
@@ -355,7 +339,7 @@ def monthly_water_costs(persons: int) -> float:
     return (m3_per_year / 12.0) * float(st.session_state["water_rate"])
 
 def monthly_maintenance(area_m2: float) -> float:
-    hscale = hours_scale(workshop_hours, full_week_hours) if CFG.APPORTION_MAINTENANCE else 1.0
+    hscale = hours_scale(workshop_hours) if CFG.APPORTION_MAINTENANCE else 1.0
     mm = st.session_state.get("maint_method", "£/m² per year")
     if str(mm).startswith("£/m² per year"):
         rate = st.session_state.get("maint_rate_per_m2_y", TARIFF_BANDS[USAGE_KEY]["intensity_per_year"]["maint_gbp_per_m2"])
@@ -394,7 +378,7 @@ def item_capacity_100(prisoners_assigned: int, minutes_per_item: float, prisoner
         return 0.0
     return (prisoners_assigned * hours * 60.0) / (minutes_per_item * prisoners_required)
 
-# Production pricing (Contractual) — uses global_output_pct and single default assignment
+# Production pricing (Contractual) — takes output_pct as a parameter
 def calculate_production_contractual(items, default_assigned: int, output_pct: int):
     overheads_weekly, _detail = weekly_overheads_total()
     inst_weekly_total = (
@@ -433,10 +417,10 @@ def calculate_production_contractual(items, default_assigned: int, output_pct: i
         unit_cost_ex_vat = (weekly_cost_item / actual_units) if actual_units > 0 else None
         unit_price_ex_vat = unit_cost_ex_vat
 
-        apply_vat = st.session_state.get("apply_vat", False)
-        vat_rate = float(st.session_state.get("vat_rate", 20.0))
-        if unit_price_ex_vat is not None and (customer_type == "Commercial" and apply_vat):
-            unit_price_inc_vat = unit_price_ex_vat * (1 + (vat_rate / 100.0))
+        apply_vat_flag = st.session_state.get("apply_vat", False)
+        vat_rate_val = float(st.session_state.get("vat_rate", 20.0))
+        if unit_price_ex_vat is not None and (customer_type == "Commercial" and apply_vat_flag):
+            unit_price_inc_vat = unit_price_ex_vat * (1 + (vat_rate_val / 100.0))
         else:
             unit_price_inc_vat = unit_price_ex_vat
 
@@ -477,7 +461,7 @@ def generate_host():
                           breakdown["Water (estimated)"] + breakdown["Administration"] +
                           breakdown["Depreciation/Maintenance (estimated)"])
 
-    # Development charge rules (Commercial only) – simple placeholder (can be extended)
+    # Simple development charge placeholder (Commercial only)
     if customer_type == "Commercial":
         dev_applied_rate = 0.20
         breakdown["Development charge (applied)"] = overheads_subtotal * dev_applied_rate
@@ -485,14 +469,14 @@ def generate_host():
         breakdown["Development charge (applied)"] = 0.0
 
     subtotal = sum(breakdown.values())
-    apply_vat = st.session_state.get("apply_vat", False)
-    vat_rate = float(st.session_state.get("vat_rate", 20.0))
-    vat_amount = (subtotal * (vat_rate / 100.0)) if (customer_type == "Commercial" and apply_vat) else 0.0
+    apply_vat_flag = st.session_state.get("apply_vat", False)
+    vat_rate_val = float(st.session_state.get("vat_rate", 20.0))
+    vat_amount = (subtotal * (vat_rate_val / 100.0)) if (customer_type == "Commercial" and apply_vat_flag) else 0.0
     grand_total = subtotal + vat_amount
 
     rows = list(breakdown.items()) + [
         ("Subtotal", subtotal),
-        (f"VAT ({vat_rate:.1f}%)" if (customer_type == "Commercial" and apply_vat) else "VAT (0.0%)", vat_amount),
+        (f"VAT ({vat_rate_val:.1f}%)" if (customer_type == "Commercial" and apply_vat_flag) else "VAT (0.0%)", vat_amount),
         ("Grand Total (£/month)", grand_total),
     ]
     host_df = pd.DataFrame(rows, columns=["Item", "Amount (£)"])
@@ -509,11 +493,8 @@ def generate_host():
 # ----------------------------
 # PRODUCTION branch
 # ----------------------------
-def production_contractual():
-    st.caption(
-        "Apportionment: Labour minutes — overheads & instructor time are shared by "
-        "assigned labour minutes (assigned prisoners × weekly hours × 60)."
-    )
+def production_contractual(output_pct: int):
+    # (Caption removed per request)
     budget_minutes = labour_minutes_budget(num_prisoners, workshop_hours)
     st.markdown(f"As per your selected resources you have **{budget_minutes:,.0f} Labour minutes** available this week.")
 
@@ -563,7 +544,7 @@ def production_contractual():
         )
         return
 
-    results = calculate_production_contractual(items, default_assigned, global_output_pct)
+    results = calculate_production_contractual(items, default_assigned, output_pct)
     prod_df = pd.DataFrame([{
         k: (None if r[k] is None else (round(float(r[k]), 2) if isinstance(r[k], (int, float)) else r[k]))
         for k in ["Item", "Output %", "Units/week", "Unit Cost (£)", "Unit Price ex VAT (£)", "Unit Price inc VAT (£)"]
@@ -579,8 +560,7 @@ def production_contractual():
         st.download_button("Download PDF-ready HTML (Production)", data=export_html(None, prod_df, title="Production Quote"),
                            file_name="production_quote.html", mime="text/html")
 
-def production_adhoc():
-    # Shared capacity + per-minute cost, using Output % to scale effective capacity
+def production_adhoc(output_pct: int):
     def working_days_between(start: date, end: date) -> int:
         """Inclusive working days Mon–Fri between start and end."""
         if end < start: return 0
@@ -621,13 +601,13 @@ def production_adhoc():
             st.error("Fix errors:\n- " + "\n- ".join(errs))
             return
 
-        # Capacity per working day
+        # Capacity per working day (Output % scales effective capacity)
         hours_per_day = float(workshop_hours) / 5.0  # Mon–Fri
-        output_scale = float(global_output_pct) / 100.0
+        output_scale = float(output_pct) / 100.0
         daily_minutes_capacity_per_prisoner = hours_per_day * 60.0 * output_scale
         current_daily_capacity = num_prisoners * daily_minutes_capacity_per_prisoner
 
-        # Weekly costs -> per-minute cost (Output % reduces weekly minutes capacity -> higher cost per minute)
+        # Weekly costs -> per-minute cost (Output % reduces weekly minutes capacity)
         overheads_weekly, _detail = weekly_overheads_total()
         inst_weekly_total = (
             sum((s / 52) * (effective_pct / 100) for s in supervisor_salaries)
@@ -648,8 +628,8 @@ def production_adhoc():
         for ln in lines:
             mins_per_unit = ln["mins_per_item"] * ln["pris_per_item"]
             unit_cost_ex_vat = cost_per_minute * mins_per_unit
-            if customer_type == "Commercial" and apply_vat:
-                unit_cost_inc_vat = unit_cost_ex_vat * (1 + (vat_rate/100.0))
+            if customer_type == "Commercial" and st.session_state.get("apply_vat", False):
+                unit_cost_inc_vat = unit_cost_ex_vat * (1 + (float(st.session_state.get("vat_rate", 20.0))/100.0))
             else:
                 unit_cost_inc_vat = unit_cost_ex_vat
 
@@ -684,7 +664,7 @@ def production_adhoc():
         earliest_wd_available = earliest_wd_available or 0
 
         # Output summary table
-        show_inc = (customer_type == "Commercial" and apply_vat)
+        show_inc = (customer_type == "Commercial" and st.session_state.get("apply_vat", False))
         col_headers = [
             "Item", "Units",
             f"Unit Cost (£{' inc VAT' if show_inc else ''})",
@@ -720,7 +700,6 @@ def production_adhoc():
             if wd_needed_all <= earliest_wd_available:
                 st.success(f"Based on the data entered, the products will be ready in **{wd_needed_all} working day(s)**.")
             else:
-                # Extra prisoners needed to hit the tightest deadline
                 if earliest_wd_available > 0:
                     required_minutes_per_day = total_job_minutes / earliest_wd_available
                     deficit_per_day = max(0.0, required_minutes_per_day - current_daily_capacity)
@@ -733,27 +712,6 @@ def production_adhoc():
                     f"With current staffing, you need **{wd_needed_all} working day(s)**. "
                     f"**Extra prisoners required:** {extra_prisoners_needed}"
                 )
-
-        # Summary export
-        summary_df = pd.DataFrame([{
-            "Item": p["name"], "Units": p["units"],
-            ("Unit Cost inc VAT (£)" if show_inc else "Unit Cost (£)"): round(p["unit_cost_inc_vat"] if show_inc else p["unit_cost_ex_vat"], 2),
-            ("Line Total inc VAT (£)" if show_inc else "Line Total (£)"): round(p["line_total_inc_vat"] if show_inc else p["line_total_ex_vat"], 2),
-        } for p in per_line])
-        totals_row = {
-            "Item": "TOTAL", "Units": sum(p["units"] for p in per_line),
-            ("Unit Cost inc VAT (£)" if show_inc else "Unit Cost (£)"): "",
-            ("Line Total inc VAT (£)" if show_inc else "Line Total (£)"): round(total_inc_vat if show_inc else total_ex_vat, 2),
-        }
-        summary_df = pd.concat([summary_df, pd.DataFrame([totals_row])], ignore_index=True)
-
-        d1, d2 = st.columns(2)
-        with d1:
-            st.download_button("Download CSV (Ad‑hoc)", data=export_csv_bytes(summary_df),
-                               file_name="adhoc_summary.csv", mime="text/csv")
-        with d2:
-            st.download_button("Download PDF-ready HTML (Ad‑hoc)", data=export_html(None, summary_df, title="Ad‑hoc Quote — Summary"),
-                               file_name="adhoc_quote.html", mime="text/html")
 
 # ----------------------------
 # MAIN BRANCHING
@@ -768,6 +726,14 @@ if workshop_mode == "Host":
             generate_host()
 
 elif workshop_mode == "Production":
+    # Planned Output (%) is ONLY visible within Production
+    st.markdown("---")
+    st.subheader("Production settings")
+    planned_output_pct = st.slider(
+        "Planned Output (%)", min_value=0, max_value=100, value=CFG.GLOBAL_OUTPUT_DEFAULT,
+        help="How much of the theoretical capacity you plan to use (applies to Contractual and Ad‑hoc)."
+    )
+
     prod_type = st.radio(
         "Do you want ad‑hoc costs with a deadline, or contractual work?",
         ["Contractual work", "Ad‑hoc costs (multiple lines) with deadlines"],
@@ -780,9 +746,9 @@ elif workshop_mode == "Production":
         st.error("Fix errors before production:\n- " + "\n- ".join(errors_top))
     else:
         if prod_type == "Contractual work":
-            production_contractual()
+            production_contractual(planned_output_pct)
         else:
-            production_adhoc()
+            production_adhoc(planned_output_pct)
 
 # Footer: Reset
 st.markdown('\n', unsafe_allow_html=True)
