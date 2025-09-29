@@ -312,9 +312,9 @@ def run_production():
         # Pricing mode
         pricing_mode_label = st.radio(
             "Price based on:",
-            ["As‑is (maximum units from capacity)", "Target units per week"],
+            ["Maximum units from capacity", "Target units per week"],
             index=0,
-            help="As‑is uses the max units your assigned prisoners can produce at the chosen Output %. Target lets you enter desired units/week per item."
+            help="Max units your assigned prisoners can produce at the chosen Output %. Target lets you enter desired units/week per item."
         )
         pricing_mode = "as-is" if pricing_mode_label.startswith("As‑is") else "target"
 
@@ -517,3 +517,4 @@ if st.button("Reset Selections", key="reset_app_footer"):
     except Exception:
         st.experimental_rerun()
 st.markdown('\n', unsafe_allow_html=True)
+
