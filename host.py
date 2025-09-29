@@ -1,4 +1,5 @@
 # host.py
+# Host monthly breakdown; Development charge uses same question as Production.
 from typing import List, Dict, Tuple
 import pandas as pd
 import streamlit as st
@@ -17,9 +18,9 @@ def generate_host_quote(
     supervisor_salaries: List[float],
     effective_pct: float,
     customer_type: str,
-    apply_vat: bool,
-    vat_rate: float,
-    dev_rate: float,
+    apply_vat: bool,          # kept in signature for compatibility; we'll pass True
+    vat_rate: float,          # we will pass 20.0
+    dev_rate: float,          # 0..0.2 (or your chosen scale)
 ) -> Tuple[pd.DataFrame, Dict]:
     breakdown: Dict[str, float] = {}
     breakdown["Prisoner wages"] = float(num_prisoners) * float(prisoner_salary) * (52.0 / 12.0)
@@ -40,16 +41,20 @@ def generate_host_quote(
     breakdown["Administration"]         = admin_m
     breakdown["Depreciation/Maintenance (estimated)"] = maint_m
 
+    # Development charge applies only to Commercial (as per your rule)
     overheads_subtotal = elec_m + gas_m + water_m + admin_m + maint_m
     breakdown["Development charge (applied)"] = overheads_subtotal * (float(dev_rate) if customer_type == "Commercial" else 0.0)
 
     subtotal = sum(breakdown.values())
-    vat_amount = (subtotal * (float(vat_rate) / 100.0)) if (customer_type == "Commercial" and apply_vat) else 0.0
+
+    # === VAT: always apply at 20% (no checkbox) ===
+    vat_amount = subtotal * (float(vat_rate) / 100.0)
+
     grand_total = subtotal + vat_amount
 
     rows = list(breakdown.items()) + [
         ("Subtotal", subtotal),
-        ((f"VAT ({float(vat_rate):.1f}%)") if (customer_type == "Commercial" and apply_vat) else "VAT (0.0%)", vat_amount),
+        (f"VAT ({float(vat_rate):.1f}%)", vat_amount),
         ("Grand Total (£/month)", grand_total),
     ]
     host_df = pd.DataFrame(rows, columns=["Item", "Amount (£)"])
