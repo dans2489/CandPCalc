@@ -1,16 +1,10 @@
 # newapp.py
-# Streamlit UI: original aesthetics + your requested logic & constraints.
-# - Standing charges NOT apportioned
-# - Variable energy + maintenance apportioned by hours
-# - Planned Output (%) only visible once Production is selected
-# - Per-item "Prisoners assigned" (supports splits like 4,4,3)
-# - Hard constraints:
-#     • Sum of item assignments ≤ total prisoners
-#     • Planned minutes (assigned × hours × 60 × Output%) ≤ available minutes
-#     • Ad‑hoc: total job minutes ≤ capacity by earliest deadline
-# - Unit prices are correctly split between items via labour‑minutes apportionment.
-
-from __future__ import annotations
+# UI shell: original aesthetics, short, robust.
+# - Sidebar moved to sidebar.py
+# - Dev charge applied to Host & Production (same question; can be 0%)
+# - Unit prices include salaries + overheads + dev charge (apportioned by labour minutes)
+# - Output slider changes BOTH planned available and planned used minutes (hard limit enforced)
+# - Per-item assignment with hard constraints; Ad-hoc feasibility check by earliest deadline
 
 from io import BytesIO
 from datetime import date
@@ -20,6 +14,7 @@ import streamlit as st
 from config import CFG
 from style import inject_govuk_css
 from tariff import PRISON_TO_REGION, SUPERVISOR_PAY, TARIFF_BANDS
+from sidebar import draw_sidebar
 from production import (
     labour_minutes_budget,
     calculate_production_contractual,
@@ -28,7 +23,9 @@ from production import (
 from host import generate_host_quote
 
 
-# --- Page config (original layout) -------------------------------------------
+# ----------------------------
+# Page config & minimal styling
+# ----------------------------
 st.set_page_config(page_title="Cost and Price Calculator", page_icon="💷", layout="centered")
 inject_govuk_css()
 st.markdown("## Cost and Price Calculator")
@@ -79,9 +76,7 @@ def export_csv_bytes(df: pd.DataFrame) -> BytesIO:
     b.seek(0)
     return b
 
-def export_html(host_df: pd.DataFrame | None,
-                prod_df: pd.DataFrame | None,
-                title="Quote") -> BytesIO:
+def export_html(host_df: pd.DataFrame | None, prod_df: pd.DataFrame | None, title="Quote") -> BytesIO:
     css = """
     <style>
       body{font-family:Arial,Helvetica,sans-serif;color:#0b0c0c;}
@@ -106,7 +101,9 @@ def export_html(host_df: pd.DataFrame | None,
         section_title = "Ad‑hoc Items" if "Ad‑hoc" in str(title) else "Production Items"
         parts += [f"<h3>{section_title}</h3>", render_generic_df_to_html(prod_df)]
     parts.append("<p>Prices are indicative and may change based on final scope and site conditions.</p>")
-    b = BytesIO("".join(parts).encode("utf-8")); b.seek(0); return b
+    b = BytesIO("".join(parts).encode("utf-8"))
+    b.seek(0)
+    return b
 
 
 # ----------------------------
@@ -142,103 +139,17 @@ workshop_usage = st.radio(
     horizontal=True, key="workshop_usage",
 )
 USAGE_KEY = ("low" if "Low" in workshop_usage else "medium" if "Medium" in workshop_usage else "high")
-
 st.caption(
     "**What these mean:** "
-    "**Low** – heated & lit, light plug/process loads; minimal machinery. "
-    "**Medium** – mixed light industrial with intermittent small machinery + lighting/IT. "
-    "**High** – machinery‑heavy or continuous processes plus lighting/IT and heating."
+    "**Low** – heated & lit, light plug/process loads. "
+    "**Medium** – mixed light industrial. "
+    "**High** – machinery‑heavy or continuous processes."
 )
 
 # ----------------------------
-# Sidebar — Tariffs & Overheads (same inputs; sidebar width handled in style.py)
+# Sidebar — Tariffs & Overheads (moved to sidebar.py)
 # ----------------------------
-with st.sidebar:
-    st.header("Tariffs & Overheads")
-    st.markdown("← Set your tariff & overhead rates here")
-
-    band = TARIFF_BANDS[USAGE_KEY]
-    elec_low = TARIFF_BANDS["low"]["intensity_per_year"]["elec_kwh_per_m2"]
-    elec_med = TARIFF_BANDS["medium"]["intensity_per_year"]["elec_kwh_per_m2"]
-    elec_high = TARIFF_BANDS["high"]["intensity_per_year"]["elec_kwh_per_m2"]
-    gas_low = TARIFF_BANDS["low"]["intensity_per_year"]["gas_kwh_per_m2"]
-    gas_med = TARIFF_BANDS["medium"]["intensity_per_year"]["gas_kwh_per_m2"]
-    gas_high = TARIFF_BANDS["high"]["intensity_per_year"]["gas_kwh_per_m2"]
-    water_per_emp_y = TARIFF_BANDS["low"]["intensity_per_year"]["water_m3_per_employee"]
-
-    def _mark(v, k): return f"**{v}** ← selected" if USAGE_KEY == k else f"{v}"
-    st.caption(f"**Electricity intensity (kWh/m²/year):** Low {_mark(elec_low,'low')} • Medium {_mark(elec_med,'medium')} • High {_mark(elec_high,'high')}")
-    st.caption(f"**Gas intensity (kWh/m²/year):** Low {_mark(gas_low,'low')} • Medium {_mark(gas_med,'medium')} • High {_mark(gas_high,'high')}")
-    st.caption(f"**Water:** **{water_per_emp_y} m³ per employee per year**")
-
-    # Defaults
-    for k, v in {
-        "electricity_rate": None, "elec_daily": None,
-        "gas_rate": None, "gas_daily": None,
-        "water_rate": None, "admin_monthly": None,
-        "maint_rate_per_m2_y": None, "last_applied_band": None,
-        "maint_method": "£/m² per year (industry standard)",
-    }.items():
-        st.session_state.setdefault(k, v)
-
-    needs_seed = any(st.session_state[k] is None for k in [
-        "electricity_rate", "elec_daily", "gas_rate", "gas_daily",
-        "water_rate", "admin_monthly", "maint_rate_per_m2_y"
-    ])
-    if st.session_state["last_applied_band"] != USAGE_KEY or needs_seed:
-        st.session_state.update({
-            "electricity_rate": band["rates"]["elec_unit"],
-            "elec_daily": band["rates"]["elec_daily"],
-            "gas_rate": band["rates"]["gas_unit"],
-            "gas_daily": band["rates"]["gas_daily"],
-            "water_rate": band["rates"]["water_unit"],
-            "admin_monthly": band["rates"]["admin_monthly"],
-            "maint_rate_per_m2_y": band["intensity_per_year"]["maint_gbp_per_m2"],
-            "last_applied_band": USAGE_KEY,
-        })
-
-    st.markdown("**Electricity**")
-    col_e1, col_e2 = st.columns(2)
-    with col_e1:
-        st.number_input("Unit rate (£/kWh)", min_value=0.0, step=0.0001, format="%.4f", key="electricity_rate")
-    with col_e2:
-        st.number_input("Daily charge (£/day)", min_value=0.0, step=0.001, format="%.3f", key="elec_daily")
-
-    st.markdown("**Gas**")
-    col_g1, col_g2 = st.columns(2)
-    with col_g1:
-        st.number_input("Unit rate (£/kWh)", min_value=0.0, step=0.0001, format="%.4f", key="gas_rate")
-    with col_g2:
-        st.number_input("Daily charge (£/day)", min_value=0.0, step=0.001, format="%.3f", key="gas_daily")
-
-    st.markdown("**Water**")
-    st.number_input("Unit rate (£/m³)", min_value=0.0, step=0.10, format="%.2f", key="water_rate")
-
-    st.markdown("**Maintenance / Depreciation**")
-    maint_method = st.radio(
-        "Method",
-        ["£/m² per year (industry standard)", "Set a fixed monthly amount", "% of reinstatement value"],
-        index=0 if str(st.session_state.get("maint_method","")).startswith("£/m²") else
-             (1 if st.session_state.get("maint_method") == "Set a fixed monthly amount" else 2),
-        key="maint_method"
-    )
-    if maint_method.startswith("£/m² per year"):
-        st.number_input(
-            "Maintenance rate (£/m²/year)", min_value=0.0, step=0.5,
-            value=float(st.session_state["maint_rate_per_m2_y"]), key="maint_rate_per_m2_y"
-        )
-    elif maint_method == "Set a fixed monthly amount":
-        st.number_input("Maintenance (monthly £)", min_value=0.0, value=float(st.session_state.get("maint_monthly", 0.0)),
-                        step=25.0, key="maint_monthly")
-    else:
-        st.number_input("Reinstatement value (£)", min_value=0.0, value=float(st.session_state.get("reinstate_val", 0.0)),
-                        step=10_000.0, key="reinstate_val")
-        st.number_input("Annual % of reinstatement value", min_value=0.0, value=float(st.session_state.get("reinstate_pct", 2.0)),
-                        step=0.25, format="%.2f", key="reinstate_pct")
-
-    st.markdown("**Administration**")
-    st.number_input("Admin (monthly £)", min_value=0.0, step=25.0, key="admin_monthly")
-
+draw_sidebar(USAGE_KEY)
 
 # ----------------------------
 # Hours / staffing & instructors
@@ -286,6 +197,22 @@ if chosen_pct < int(round(recommended_pct)):
 else:
     effective_pct = int(round(recommended_pct))
 
+# ----------------------------
+# Employment support -> Development charge (Host & Production)
+# ----------------------------
+dev_rate = 0.0
+if customer_type == "Commercial":
+    support = st.selectbox(
+        "Customer employment support?",
+        ["None", "Employment on release/RoTL", "Post release", "Both"],
+        help="Affects development charge (on overheads). 'Both' reduces dev charge to 0%."
+    )
+    if support == "None":
+        dev_rate = 0.20
+    elif support in ("Employment on release/RoTL", "Post release"):
+        dev_rate = 0.10
+    else:  # "Both"
+        dev_rate = 0.00
 
 # ----------------------------
 # Pricing (Commercial): VAT only
@@ -297,7 +224,6 @@ with colp1:
     apply_vat = st.checkbox("Apply VAT?", key="apply_vat")
 with colp2:
     vat_rate = st.number_input("VAT rate %", min_value=0.0, max_value=100.0, value=20.0, step=0.5, format="%.1f", key="vat_rate")
-
 
 # ----------------------------
 # Validation
@@ -332,8 +258,8 @@ def run_host():
             st.error("Fix errors:\n- " + "\n- ".join(errors_top))
             return
         host_df, _ctx = generate_host_quote(
-            workshop_hours=workshop_hours,
-            area_m2=area_m2,
+            workshop_hours=float(workshop_hours),
+            area_m2=float(area_m2),
             usage_key=USAGE_KEY,
             num_prisoners=int(num_prisoners),
             prisoner_salary=float(prisoner_salary),
@@ -344,6 +270,7 @@ def run_host():
             customer_type=customer_type,
             apply_vat=bool(apply_vat),
             vat_rate=float(vat_rate),
+            dev_rate=float(dev_rate),
         )
         st.markdown(render_host_df_to_html(host_df), unsafe_allow_html=True)
 
@@ -365,19 +292,19 @@ def run_production():
         st.error("Fix errors before production:\n- " + "\n- ".join(errors_top))
         return
 
-    # Planned Output (%) ONLY visible within Production
     st.markdown("---")
     st.subheader("Production settings")
+
+    # Output slider scales BOTH planned available and planned used minutes (clear constraint)
     planned_output_pct = st.slider(
         "Planned Output (%)", min_value=0, max_value=100, value=CFG.GLOBAL_OUTPUT_DEFAULT,
-        help="How much of the theoretical capacity you plan to use (applies to Contractual and Ad‑hoc)."
+        help="Scales both planned available and planned used labour minutes."
     )
 
     prod_type = st.radio(
         "Do you want ad‑hoc costs with a deadline, or contractual work?",
         ["Contractual work", "Ad‑hoc costs (multiple lines) with deadlines"],
-        index=0,
-        key="prod_type"
+        index=0, key="prod_type"
     )
 
     if prod_type == "Contractual work":
@@ -387,15 +314,17 @@ def run_production():
 
 
 def run_production_contractual(planned_output_pct: int):
-    # Show budget
-    budget_minutes = labour_minutes_budget(int(num_prisoners), float(workshop_hours))
-    st.markdown(f"As per your selected resources you have **{budget_minutes:,.0f} Labour minutes** available this week.")
+    # Planned available minutes respond to Output%
+    budget_minutes_raw = labour_minutes_budget(int(num_prisoners), float(workshop_hours))
+    output_scale = float(planned_output_pct) / 100.0
+    budget_minutes_planned = budget_minutes_raw * output_scale
+    st.markdown(f"**Planned available Labour minutes @ {planned_output_pct}%:** {budget_minutes_planned:,.0f}")
 
     # Number of items
     num_items = st.number_input("Number of items produced?", min_value=1, value=1, step=1, key="num_items_prod")
 
     items = []
-    # Enforce the "sum assigned ≤ total prisoners" live via running remainder
+    # Enforce sum(assigned) ≤ total prisoners live via remainder
     for i in range(int(num_items)):
         with st.expander(f"Item {i+1} details", expanded=(i == 0)):
             name = st.text_input(f"Item {i+1} Name", key=f"name_{i}")
@@ -419,45 +348,32 @@ def run_production_contractual(planned_output_pct: int):
                 step=1, key=f"assigned_{i}"
             )
 
-            # Preview capacity @ 100%
+            # Preview @100%
             if assigned > 0 and minutes_per > 0 and required > 0 and workshop_hours > 0:
                 cap_100 = (assigned * workshop_hours * 60.0) / (minutes_per * required)
             else:
                 cap_100 = 0.0
             st.markdown(f"{disp} capacity @ 100%: **{cap_100:.0f} units/week**")
 
-            items.append({
-                "name": name, "required": int(required),
-                "minutes": float(minutes_per), "assigned": int(assigned)
-            })
+            items.append({"name": name, "required": int(required), "minutes": float(minutes_per), "assigned": int(assigned)})
 
-    # Hard constraint 1: total assigned ≤ total prisoners
+    # Hard 1: total assigned ≤ total prisoners
     total_assigned = sum(it["assigned"] for it in items)
     if total_assigned > int(num_prisoners):
-        st.error(
-            f"Prisoners assigned across items **({total_assigned})** exceed total prisoners "
-            f"**({int(num_prisoners)})**. Reduce per‑item assignments."
-        )
+        st.error(f"Prisoners assigned across items ({total_assigned}) exceed total prisoners ({int(num_prisoners)}).")
         return
 
-    # Planned used minutes (responds to Output%)
-    output_scale = float(planned_output_pct) / 100.0
+    # Planned used minutes respond to Output%
     used_minutes_raw = total_assigned * workshop_hours * 60.0
     used_minutes_planned = used_minutes_raw * output_scale
-    st.markdown(
-        f"**Used Labour minutes (planned @ {planned_output_pct}%):** "
-        f"{used_minutes_planned:,.0f} / {budget_minutes:,.0f}"
-    )
+    st.markdown(f"**Planned used Labour minutes @ {planned_output_pct}%:** {used_minutes_planned:,.0f}")
 
-    # Hard constraint 2: planned minutes ≤ available minutes
-    if used_minutes_planned > budget_minutes:
-        st.error(
-            "Planned used minutes exceed the available weekly Labour minutes. "
-            "Adjust assignments, add prisoners, increase hours, or lower Output%."
-        )
+    # Hard 2: planned used ≤ planned available
+    if used_minutes_planned > budget_minutes_planned:
+        st.error("Planned used minutes exceed planned available minutes. Adjust assignments, add prisoners, increase hours, or lower Output%.")
         return
 
-    # Calculate results (apportionment by labour minutes)
+    # Results (unit prices include prisoner wages + instructors + overheads + development)
     results = calculate_production_contractual(
         items, planned_output_pct,
         workshop_hours=float(workshop_hours),
@@ -472,25 +388,22 @@ def run_production_contractual(planned_output_pct: int):
         usage_key=USAGE_KEY,
         num_prisoners=int(num_prisoners),
         num_supervisors=int(num_supervisors),
+        dev_rate=float(dev_rate),
     )
 
-    # Defensive check: units within planned minutes
+    # Defensive: units within planned minutes (tolerate rounding)
     units_minutes = 0.0
     for r, it in zip(results, items):
         units = r.get("Units/week", 0) or 0
         units_minutes += float(units) * float(it["minutes"]) * float(it["required"])
     if units_minutes > used_minutes_planned + 1e-6:
-        st.error(
-            "Total minutes implied by units exceed planned labour minutes. "
-            "Please re-check Output% and per‑item timings."
-        )
+        st.error("Total minutes implied by units exceed planned labour minutes. Re-check Output% and timings.")
         return
 
     prod_df = pd.DataFrame([{
         k: (None if r[k] is None else (round(float(r[k]), 2) if isinstance(r[k], (int, float)) else r[k]))
         for k in ["Item", "Output %", "Units/week", "Unit Cost (£)", "Unit Price ex VAT (£)", "Unit Price inc VAT (£)"]
     } for r in results])
-
     st.markdown(render_generic_df_to_html(prod_df), unsafe_allow_html=True)
 
     d1, d2 = st.columns(2)
@@ -503,8 +416,6 @@ def run_production_contractual(planned_output_pct: int):
 
 
 def run_production_adhoc(planned_output_pct: int):
-    from production import working_days_between  # reuse helper
-
     num_lines = st.number_input("How many product lines are needed?", min_value=1, value=1, step=1, key="adhoc_num_lines")
     lines = []
     for i in range(int(num_lines)):
@@ -516,7 +427,6 @@ def run_production_adhoc(planned_output_pct: int):
             c4, c5 = st.columns([1, 1])
             with c4: pris_per_item = st.number_input("Prisoners to make one", min_value=1, value=1, step=1, key=f"adhoc_pris_req_{i}")
             with c5: minutes_per_item = st.number_input("Minutes to make one", min_value=1.0, value=10.0, format="%.2f", key=f"adhoc_mins_{i}")
-
             lines.append({
                 "name": (item_name.strip() or f"Item {i+1}") if isinstance(item_name, str) else f"Item {i+1}",
                 "units": int(units_requested),
@@ -549,22 +459,20 @@ def run_production_adhoc(planned_output_pct: int):
             vat_rate=float(vat_rate),
             area_m2=float(area_m2),
             usage_key=USAGE_KEY,
+            dev_rate=float(dev_rate),
             today=date.today(),
         )
 
-        # HARD CONSTRAINT for Ad‑hoc: total minutes by earliest deadline
         if result["feasibility"]["hard_block"]:
             st.error(result["feasibility"]["reason"])
             return
 
-        # Render table
         show_inc = (customer_type == "Commercial" and apply_vat)
         col_headers = [
             "Item", "Units",
             f"Unit Cost (£{' inc VAT' if show_inc else ''})",
             f"Line Total (£{' inc VAT' if show_inc else ''})"
         ]
-
         data_rows = []
         for p in result["per_line"]:
             data_rows.append([
@@ -572,7 +480,6 @@ def run_production_adhoc(planned_output_pct: int):
                 f"{(p['unit_cost_inc_vat'] if show_inc else p['unit_cost_ex_vat']):.2f}",
                 f"{(p['line_total_inc_vat'] if show_inc else p['line_total_ex_vat']):.2f}",
             ])
-
         table_html = ["<table><tr>"] + [f"<th>{h}</th>" for h in col_headers] + ["</tr>"]
         for r in data_rows:
             table_html.append("<tr>" + "".join(f"<td>{c}</td>" for c in r) + "</tr>")
@@ -586,41 +493,11 @@ def run_production_adhoc(planned_output_pct: int):
         else:
             st.markdown(f"**Total Job Cost: £{totals['ex_vat']:,.2f}**")
 
-        # Feasibility message (working days only, now guaranteed feasible)
         feas = result["feasibility"]
-        st.success(f"Based on the data entered, the products will be ready in **{feas['wd_needed_all']} working day(s)** "
-                   f"(earliest deadline in **{feas['earliest_wd_available']} working day(s)**).")
-
-        # Summary export
-        summary_cols = [
-            {"name": "Item", "key": "name"},
-            {"name": "Units", "key": "units"},
-            {"name": "Unit Cost inc VAT (£)" if show_inc else "Unit Cost (£)",
-             "key": "unit_cost_inc_vat" if show_inc else "unit_cost_ex_vat"},
-            {"name": "Line Total inc VAT (£)" if show_inc else "Line Total (£)",
-             "key": "line_total_inc_vat" if show_inc else "line_total_ex_vat"},
-        ]
-        summary_df = pd.DataFrame([
-            {c["name"]: round(p[c["key"]], 2) if isinstance(p[c["key"]], (int, float)) else p[c["key"]]
-             for c in summary_cols}
-            for p in result["per_line"]
-        ])
-        totals_row = {
-            "Item": "TOTAL",
-            "Units": sum(p["units"] for p in result["per_line"]),
-            ("Unit Cost inc VAT (£)" if show_inc else "Unit Cost (£)"): "",
-            ("Line Total inc VAT (£)" if show_inc else "Line Total (£)"):
-                round(totals["inc_vat"] if show_inc else totals["ex_vat"], 2),
-        }
-        summary_df = pd.concat([summary_df, pd.DataFrame([totals_row])], ignore_index=True)
-
-        d1, d2 = st.columns(2)
-        with d1:
-            st.download_button("Download CSV (Ad‑hoc)", data=export_csv_bytes(summary_df),
-                               file_name="adhoc_summary.csv", mime="text/csv")
-        with d2:
-            st.download_button("Download PDF-ready HTML (Ad‑hoc)", data=export_html(None, summary_df, title="Ad‑hoc Quote — Summary"),
-                               file_name="adhoc_quote.html", mime="text/html")
+        st.success(
+            f"Based on the data entered, the products will be ready in **{feas['wd_needed_all']} working day(s)** "
+            f"(earliest deadline in **{feas['earliest_wd_available']} working day(s)**)."
+        )
 
 
 # ----------------------------
@@ -631,7 +508,9 @@ if workshop_mode == "Host":
 elif workshop_mode == "Production":
     run_production()
 
+# ----------------------------
 # Footer: Reset
+# ----------------------------
 st.markdown('\n', unsafe_allow_html=True)
 if st.button("Reset Selections", key="reset_app_footer"):
     for k in list(st.session_state.keys()):
