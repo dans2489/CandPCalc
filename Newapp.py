@@ -88,8 +88,6 @@ st.markdown(
 
 st.markdown("## Cost and Price Calculator\n")
 
-# Example app body
-st.write("This is the main page content, centered even when the sidebar is open/closed.")
 
 # -----------------------------
 # Constants
@@ -274,7 +272,7 @@ prisons_sorted = ["Select"] + sorted(PRISON_TO_REGION.keys())
 prison_choice = st.selectbox("Prison Name", prisons_sorted, index=0, key="prison_choice")
 region = PRISON_TO_REGION.get(prison_choice, "Select") if prison_choice != "Select" else "Select"
 st.session_state["region"] = region
-st.text_input("Region", value=(region if region != "Select" else ""), key="region_display", disabled=True)
+
 
 customer_type = st.selectbox("I want to quote for", ["Select", "Commercial", "Another Government Department"], key="customer_type")
 customer_name = st.text_input("Customer Name", key="customer_name")
@@ -1032,3 +1030,4 @@ if st.button("Reset Selections", key="reset_app_footer"):
     except Exception:
         st.experimental_rerun()
 st.markdown('\n', unsafe_allow_html=True)
+
