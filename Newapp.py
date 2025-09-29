@@ -1,4 +1,3 @@
-# newark.py
 from __future__ import annotations
 from io import BytesIO
 from datetime import date, timedelta
@@ -6,23 +5,194 @@ import math
 import pandas as pd
 import streamlit as st
 
-import config
-from style import inject_govuk_style
+# import streamlit as st
 
 # -----------------------------
-# Page config & styling
+# Page config & GOV.UK styling (CENTERED + wider/neutral sidebar)
 # -----------------------------
 st.set_page_config(
     page_title="Cost and Price Calculator",
     page_icon="💷",
     layout="centered"
 )
-inject_govuk_style(st)
+
+st.markdown(
+    """
+    <style>
+    /* Typography */
+    html, body, [class*="css"] {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Noto Sans, Ubuntu, Cantarell,
+                   Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+    }
+
+    /* Primary buttons – full width for clean alignment */
+    .stButton > button {
+      background: #00703C; color: #fff; border: 2px solid #005A30;
+      border-radius: 4px; padding: .50rem 1rem; font-weight: 600; width: 100%;
+    }
+    .stButton > button:focus { outline: 3px solid #FFDD00; outline-offset: 2px; }
+
+    /* Download buttons full width */
+    .stDownloadButton > button { width: 100%; }
+
+    /* Tables (GOV.UK-like chrome) */
+    table { border-collapse: collapse; width: 100%; margin: .5rem 0 1rem; }
+    th, td { border: 1px solid #b1b4b6; padding: .5rem .6rem; text-align: left; }
+    thead th { background: #f3f2f1; font-weight: 700; }
+    tr.grand td { font-weight: 800; border-top: 3px double #0b0c0c; }
+    td.neg { color: #D4351C; }
+    .muted { color: #6f777b; }
+
+    /* ✅ Sidebar styling */
+    [data-testid="stSidebar"] {
+      background-color: #f3f2f1 !important;   /* neutral GOV.UK grey */
+      min-height: 100vh;                       /* fill full height */
+      min-width: 420px;                        /* wider sidebar */
+    }
+
+    /* Ensure inner wrappers don't override the background back to white */
+    [data-testid="stSidebar"] > div,
+    [data-testid="stSidebar"] > div > div,
+    [data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
+      background: transparent !important;
+    }
+
+    /* Keep inner content wide enough (older Streamlit builds) */
+    [data-testid="stSidebar"] > div:first-child {
+      max-width: 480px;
+      padding-right: 8px;
+    }
+
+    /* Optional neutral callout inside the sidebar (if you keep it) */
+    .sb-callout {
+      background: #f3f2f1; border-left: 6px solid #b1b4b6;
+      padding: 8px 10px; margin-bottom: 6px; font-weight: 700;
+    }
+
+    /* 🔒 Fully hide sidebar when collapsed */
+    section[data-testid="stSidebar"][aria-expanded="false"] {
+      width: 0 !important;
+      min-width: 0 !important;
+      max-width: 0 !important;
+    }
+
+    /* 📐 Keep main app centered regardless of sidebar */
+    div[data-testid="stAppViewContainer"] {
+      margin-left: auto !important;
+      margin-right: auto !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 st.markdown("## Cost and Price Calculator\n")
 
+# Example app body
+st.write("This is the main page content, centered even when the sidebar is open/closed.")
 
 # -----------------------------
-# Helpers / Renderers / Export
+# Constants
+# -----------------------------
+DAYS_PER_MONTH = 365.0 / 12.0   # ≈30.42
+FT2_TO_M2 = 0.092903
+BASE_HOURS_PER_WEEK = 27.0      # baseline for variable (kWh) scaling
+
+# -----------------------------
+# Prison → Region map
+# -----------------------------
+PRISON_TO_REGION = {
+    "Altcourse": "National", "Ashfield": "National", "Askham Grange": "National", "Aylesbury": "National",
+    "Bedford": "National", "Belmarsh": "Inner London", "Berwyn": "National", "Birmingham": "National",
+    "Brinsford": "National", "Bristol": "National", "Brixton": "Inner London", "Bronzefield": "Outer London",
+    "Buckley Hall": "National", "Bullingdon": "National", "Bure": "National", "Cardiff": "National",
+    "Channings Wood": "National", "Chelmsford": "National", "Coldingley": "Outer London", "Cookham Wood": "National",
+    "Dartmoor": "National", "Deerbolt": "National", "Doncaster": "National", "Dovegate": "National",
+    "Downview": "Outer London", "Drake Hall": "National", "Durham": "National", "East Sutton Park": "National",
+    "Eastwood Park": "National", "Elmley": "National", "Erlestoke": "National", "Exeter": "National",
+    "Featherstone": "National", "Feltham A": "Outer London", "Feltham B": "Outer London", "Five Wells": "National",
+    "Ford": "National", "Forest Bank": "National", "Fosse Way": "National", "Foston Hall": "National",
+    "Frankland": "National", "Full Sutton": "National", "Garth": "National", "Gartree": "National",
+    "Grendon": "National", "Guys Marsh": "National", "Hatfield": "National", "Haverigg": "National",
+    "Hewell": "National", "High Down": "Outer London", "Highpoint": "National", "Hindley": "National",
+    "Hollesley Bay": "National", "Holme House": "National", "Hull": "National", "Humber": "National",
+    "Huntercombe": "National", "Isis": "Inner London", "Isle of Wight": "National", "Kirkham": "National",
+    "Kirklevington Grange": "National", "Lancaster Farms": "National", "Leeds": "National", "Leicester": "National",
+    "Lewes": "National", "Leyhill": "National", "Lincoln": "National", "Lindholme": "National",
+    "Littlehey": "National", "Liverpool": "National", "Long Lartin": "National", "Low Newton": "National",
+    "Lowdham Grange": "National", "Maidstone": "National", "Manchester": "National", "Moorland": "National",
+    "Morton Hall": "National", "The Mount": "National", "New Hall": "National", "North Sea Camp": "National",
+    "Northumberland": "National", "Norwich": "National", "Nottingham": "National", "Oakwood": "National",
+    "Onley": "National", "Parc": "National", "Parc (YOI)": "National", "Pentonville": "Inner London",
+    "Peterborough Female": "National", "Peterborough Male": "National", "Portland": "National", "Prescoed": "National",
+    "Preston": "National", "Ranby": "National", "Risley": "National", "Rochester": "National",
+    "Rye Hill": "National", "Send": "National", "Spring Hill": "National", "Stafford": "National",
+    "Standford Hill": "National", "Stocken": "National", "Stoke Heath": "National", "Styal": "National",
+    "Sudbury": "National", "Swaleside": "National", "Swansea": "National", "Swinfen Hall": "National",
+    "Thameside": "Inner London", "Thorn Cross": "National", "Usk": "National", "Verne": "National",
+    "Wakefield": "National", "Wandsworth": "Inner London", "Warren Hill": "National", "Wayland": "National",
+    "Wealstun": "National", "Werrington": "National", "Wetherby": "National", "Whatton": "National",
+    "Whitemoor": "National", "Winchester": "National", "Woodhill": "Inner London", "Wormwood Scrubs": "Inner London",
+    "Wymott": "National",
+}
+
+# Instructor pay (“Instructor”)
+SUPERVISOR_PAY = {
+    "Inner London": [
+        {"title": "Production Instructor: Band 3", "avg_total": 49203},
+        {"title": "Specialist Instructor: Band 4", "avg_total": 55632},
+    ],
+    "Outer London": [
+        {"title": "Prison Officer Specialist - Instructor: Band 4", "avg_total": 69584},
+        {"title": "Production Instructor: Band 3", "avg_total": 45856},
+    ],
+    "National": [
+        {"title": "Prison Officer Specialist - Instructor: Band 4", "avg_total": 48969},
+        {"title": "Production Instructor: Band 3", "avg_total": 42248},
+    ],
+}
+
+# -----------------------------
+# Tariff bands (Tariff C&P.xlsx — Sheet "Tariff")
+# -----------------------------
+TARIFF_BANDS = {
+    "low": {
+        "intensity_per_year": {
+            "elec_kwh_per_m2": 65, "gas_kwh_per_m2": 80,
+            "water_m3_per_employee": 15, "maint_gbp_per_m2": 8,
+        },
+        "rates": {
+            "elec_unit": 0.2597, "elec_daily": 0.487,
+            "gas_unit": 0.0629,  "gas_daily": 0.3403,
+            "water_unit": 1.30, "admin_monthly": 150.0,
+        },
+    },
+    "medium": {
+        "intensity_per_year": {
+            "elec_kwh_per_m2": 110, "gas_kwh_per_m2": 120,
+            "water_m3_per_employee": 15, "maint_gbp_per_m2": 12,
+        },
+        "rates": {
+            "elec_unit": 0.2597, "elec_daily": 0.487,
+            "gas_unit": 0.0629,  "gas_daily": 0.3403,
+            "water_unit": 1.30, "admin_monthly": 150.0,
+        },
+    },
+    "high": {
+        "intensity_per_year": {
+            "elec_kwh_per_m2": 160, "gas_kwh_per_m2": 180,
+            "water_m3_per_employee": 15, "maint_gbp_per_m2": 15,
+        },
+        "rates": {
+            "elec_unit": 0.2597, "elec_daily": 0.487,
+            "gas_unit": 0.0629,  "gas_daily": 0.3403,
+            "water_unit": 1.30, "admin_monthly": 150.0,
+        },
+    },
+}
+
+# -----------------------------
+# Render / export helpers (GOV.UK-like)
 # -----------------------------
 def _currency(v) -> str:
     try:
@@ -90,7 +260,7 @@ def export_html(host_df: pd.DataFrame | None, prod_df: pd.DataFrame | None, titl
     if host_df is not None:
         parts += ["<h2>Host Costs</h2>", _render_host_df_to_html(host_df)]
     if prod_df is not None:
-        section_title = "Ad-hoc Items" if "Ad-hoc" in str(title) else "Production Items"
+        section_title = "Ad‑hoc Items" if "Ad‑hoc" in str(title) else "Production Items"
         parts += [f"<h2>{section_title}</h2>", _render_generic_df_to_html(prod_df)]
     parts.append("<p class='muted'>Prices are indicative and may change based on final scope and site conditions.</p>")
     b = BytesIO("".join(parts).encode("utf-8"))
@@ -98,23 +268,13 @@ def export_html(host_df: pd.DataFrame | None, prod_df: pd.DataFrame | None, titl
     return b
 
 # -----------------------------
-# Constants & mappings (from config)
-# -----------------------------
-PRISON_TO_REGION = config.PRISON_TO_REGION
-SUPERVISOR_PAY = config.SUPERVISOR_PAY
-TARIFF_BANDS = config.TARIFF_BANDS
-
-# -----------------------------
 # Base inputs (main area)
 # -----------------------------
 prisons_sorted = ["Select"] + sorted(PRISON_TO_REGION.keys())
 prison_choice = st.selectbox("Prison Name", prisons_sorted, index=0, key="prison_choice")
-# In newark.py, after prison_choice selection:
-region = config.PRISON_TO_REGION.get(prison_choice)
-if prison_choice == "Select":
-    region = ""
+region = PRISON_TO_REGION.get(prison_choice, "Select") if prison_choice != "Select" else "Select"
 st.session_state["region"] = region
-
+st.text_input("Region", value=(region if region != "Select" else ""), key="region_display", disabled=True)
 
 customer_type = st.selectbox("I want to quote for", ["Select", "Commercial", "Another Government Department"], key="customer_type")
 customer_name = st.text_input("Customer Name", key="customer_name")
@@ -131,7 +291,7 @@ if workshop_size == "Enter dimensions in ft":
     area_ft2 = (width or 0.0) * (length or 0.0)
 else:
     area_ft2 = SIZE_MAP.get(workshop_size, 0)
-area_m2 = area_ft2 * config.FT2_TO_M2 if area_ft2 else 0.0
+area_m2 = area_ft2 * FT2_TO_M2 if area_ft2 else 0.0
 if area_ft2:
     st.markdown(f"Calculated area: **{area_ft2:,.0f} ft²** · **{area_m2:,.0f} m²**")
 
@@ -147,12 +307,12 @@ st.caption(
     "**What these mean:** "
     "**Low** – heated & lit, light plug/process loads; minimal machinery. "
     "**Medium** – mixed light industrial with intermittent small machinery + lighting/IT. "
-    "**High** – machinery-heavy or continuous processes plus lighting/IT and heating. "
+    "**High** – machinery‑heavy or continuous processes plus lighting/IT and heating. "
     "(Aligned with UK operational benchmarking practice.)"
 )
 
 # -----------------------------
-# Sidebar — Tariffs & Overheads
+# Sidebar — Tariffs & Overheads (editable rates only; no calculations shown)
 # -----------------------------
 with st.sidebar:
     st.header("Tariffs & Overheads")
@@ -193,7 +353,7 @@ with st.sidebar:
         "electricity_rate", "elec_daily", "gas_rate", "gas_daily",
         "water_rate", "admin_monthly", "maint_rate_per_m2_y"
     ])
-    if st.session_state.get("last_applied_band") != USAGE_KEY or needs_seed:
+    if st.session_state["last_applied_band"] != USAGE_KEY or needs_seed:
         band = TARIFF_BANDS[USAGE_KEY]
         st.session_state.update({
             "electricity_rate":    band["rates"]["elec_unit"],
@@ -375,35 +535,29 @@ def monthly_energy_costs() -> tuple[float, float]:
     elec_kwh_y = band["intensity_per_year"]["elec_kwh_per_m2"] * (area_m2 or 0.0)
     gas_kwh_y  = band["intensity_per_year"]["gas_kwh_per_m2"]  * (area_m2 or 0.0)
     try:
-        hours_scale = max(0.0, float(workshop_hours)) / float(config.BASE_HOURS_PER_WEEK)
+        hours_scale = max(0.0, float(workshop_hours)) / float(BASE_HOURS_PER_WEEK)
     except Exception:
         hours_scale = 1.0
-    uplift = config.REGION_UPLIFT.get(region, 1.0)
-    elec_unit  = float(st.session_state["electricity_rate"]) * uplift
-    gas_unit   = float(st.session_state["gas_rate"]) * uplift
+    elec_unit  = float(st.session_state["electricity_rate"])
+    gas_unit   = float(st.session_state["gas_rate"])
     elec_daily = float(st.session_state["elec_daily"])
     gas_daily  = float(st.session_state["gas_daily"])
     elec_var_m = (elec_kwh_y / 12.0) * elec_unit * hours_scale
     gas_var_m  = (gas_kwh_y  / 12.0) * gas_unit  * hours_scale
-    elec_fix_m = elec_daily * config.DAYS_PER_MONTH
-    gas_fix_m  = gas_daily  * config.DAYS_PER_MONTH
+    elec_fix_m = elec_daily * DAYS_PER_MONTH
+    gas_fix_m  = gas_daily  * DAYS_PER_MONTH
     return elec_var_m + elec_fix_m, gas_var_m + gas_fix_m
 
 def monthly_water_costs() -> float:
     band = TARIFF_BANDS[USAGE_KEY]
     persons = num_prisoners + (0 if customer_covers_supervisors else num_supervisors)
     m3_per_year = persons * band["intensity_per_year"]["water_m3_per_employee"]
-    uplift = config.REGION_UPLIFT.get(region, 1.0)
-    return (m3_per_year / 12.0) * (float(st.session_state["water_rate"]) * uplift)
+    return (m3_per_year / 12.0) * float(st.session_state["water_rate"])
 
 def weekly_overheads_total() -> tuple[float, dict]:
-    # Maintenance scaling included here
-    maint_method_local = st.session_state.get("maint_method", "£/m² per year")
-    if maint_method_local.startswith("£/m² per year"):
+    if st.session_state.get("maint_method", "£/m² per year").startswith("£/m² per year"):
         rate = st.session_state.get("maint_rate_per_m2_y", TARIFF_BANDS[USAGE_KEY]["intensity_per_year"]["maint_gbp_per_m2"])
-        uplift = config.REGION_UPLIFT.get(region, 1.0)
-        hours_scale = max(0.0, float(workshop_hours)) / float(config.BASE_HOURS_PER_WEEK)
-        maint_m = ((float(rate) * uplift) * (area_m2 or 0.0)) / 12.0 * hours_scale
+        maint_m = (float(rate) * (area_m2 or 0.0)) / 12.0
     elif st.session_state.get("maint_method") == "Set a fixed monthly amount":
         maint_m = float(st.session_state.get("maint_monthly", 0.0))
     else:
@@ -431,6 +585,16 @@ def weekly_overheads_total() -> tuple[float, dict]:
 def labour_minutes_budget(num_pris: int, hours: float) -> float:
     return max(0.0, num_pris * hours * 60.0)
 
+def item_capacity_100(prisoners_assigned: int, minutes_per_item: float, prisoners_required: int, hours: float) -> float:
+    if prisoners_assigned <= 0 or minutes_per_item <= 0 or prisoners_required <= 0 or hours <= 0:
+        return 0.0
+    return (prisoners_assigned * hours * 60.0) / (minutes_per_item * prisoners_required)
+
+# (Main UI branches continue in Part 2)
+errors = validate_inputs()
+# -----------------------------
+# Production pricing helper (Contractual model)
+# -----------------------------
 def calculate_production_contractual(items, output_percents):
     """
     Apportions weekly overheads + instructor time by assigned labour minutes
@@ -517,9 +681,7 @@ if workshop_mode == "Host":
             # Maintenance per chosen method
             if st.session_state.get("maint_method", "£/m² per year").startswith("£/m² per year"):
                 rate = float(st.session_state.get("maint_rate_per_m2_y", TARIFF_BANDS[USAGE_KEY]["intensity_per_year"]["maint_gbp_per_m2"]))
-                uplift = config.REGION_UPLIFT.get(region, 1.0)
-                hours_scale = max(0.0, float(workshop_hours)) / float(config.BASE_HOURS_PER_WEEK)
-                breakdown["Depreciation/Maintenance (estimated)"] = (rate * uplift * (area_m2 or 0.0)) / 12.0 * hours_scale
+                breakdown["Depreciation/Maintenance (estimated)"] = (rate * (area_m2 or 0.0)) / 12.0
             elif st.session_state.get("maint_method") == "Set a fixed monthly amount":
                 breakdown["Depreciation/Maintenance (estimated)"] = float(st.session_state.get("maint_monthly", 0.0))
             else:
@@ -561,7 +723,7 @@ if workshop_mode == "Host":
             host_df = pd.DataFrame(rows, columns=["Item", "Amount (£)"])
             st.markdown(_render_host_df_to_html(host_df), unsafe_allow_html=True)
 
-            # Downloads (two columns; full-width buttons via CSS)
+            # Downloads (two columns; full‑width buttons via CSS)
             c1, c2 = st.columns(2)
             with c1:
                 st.download_button("Download CSV (Host)", data=export_csv_bytes(host_df), file_name="host_quote.csv", mime="text/csv")
@@ -577,7 +739,7 @@ elif workshop_mode == "Production":
         "Do you want ad-hoc costs with a deadline, or contractual work?",
         ["Contractual work", "Ad-hoc costs (multiple lines) with deadlines"],
         index=0,
-        help="Contractual work = ongoing weekly production. Ad-hoc = one-off job(s) with delivery deadlines; feasibility uses working days (Mon–Fri).",
+        help="Contractual work = ongoing weekly production. Ad‑hoc = one‑off job(s) with delivery deadlines; feasibility uses working days (Mon–Fri).",
         key="prod_type"
     )
 
@@ -594,7 +756,7 @@ elif workshop_mode == "Production":
         items = []
         OUTPUT_PCT_HELP = (
             "How much of the item’s theoretical weekly capacity you plan to use this week. "
-            "100% assumes assigned prisoners and weekly hours are fully available; reduce for ramp-up/changeovers/downtime."
+            "100% assumes assigned prisoners and weekly hours are fully available; reduce for ramp‑up/changeovers/downtime."
         )
 
         for i in range(int(num_items)):
@@ -659,7 +821,7 @@ elif workshop_mode == "Production":
                                        data=export_html(None, prod_df, title="Production Quote"),
                                        file_name="production_quote.html", mime="text/html")
 
-    # ---------------- B) AD-HOC COSTS (MULTI-LINE) — working-day feasibility & concise summary ----------------
+    # ---------------- B) AD‑HOC COSTS (MULTI‑LINE) — working-day feasibility & concise summary ----------------
     else:
         def working_days_between(start: date, end: date) -> int:
             """Inclusive working days Mon–Fri between start and end."""
@@ -701,10 +863,10 @@ elif workshop_mode == "Production":
                     "mins_per_item": float(minutes_per_item),
                 })
 
-        if st.button("Calculate Ad-hoc Cost", key="calc_adhoc"):
+        if st.button("Calculate Ad‑hoc Cost", key="calc_adhoc"):
             errs = validate_inputs()
             if workshop_hours <= 0:
-                errs.append("Hours per week must be > 0 for Ad-hoc")
+                errs.append("Hours per week must be > 0 for Ad‑hoc")
             for i, ln in enumerate(lines):
                 if ln["units"] <= 0:
                     errs.append(f"Line {i+1}: Units requested must be > 0")
@@ -827,7 +989,7 @@ elif workshop_mode == "Production":
                             f"**Extra prisoners required:** {extra_prisoners_needed}"
                         )
 
-                # Summary export (CSV/HTML) — Ad-hoc Items title in export_html()
+                # Summary export (CSV/HTML) — Ad‑hoc Items title in export_html()
                 summary_df = pd.DataFrame([
                     {
                         "Item": p["name"],
@@ -845,15 +1007,15 @@ elif workshop_mode == "Production":
                 }
                 summary_df = pd.concat([summary_df, pd.DataFrame([totals_row])], ignore_index=True)
 
-                # Downloads (two columns; full-width via CSS)
+                # Downloads (two columns; full‑width via CSS)
                 d1, d2 = st.columns(2)
                 with d1:
-                    st.download_button("Download CSV (Ad-hoc)", data=export_csv_bytes(summary_df),
+                    st.download_button("Download CSV (Ad‑hoc)", data=export_csv_bytes(summary_df),
                                        file_name="adhoc_summary.csv", mime="text/csv")
                 with d2:
                     st.download_button(
-                        "Download PDF-ready HTML (Ad-hoc)",
-                        data=export_html(None, summary_df, title="Ad-hoc Quote — Summary"),
+                        "Download PDF-ready HTML (Ad‑hoc)",
+                        data=export_html(None, summary_df, title="Ad‑hoc Quote — Summary"),
                         file_name="adhoc_quote.html",
                         mime="text/html"
                     )
