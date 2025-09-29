@@ -24,36 +24,7 @@ from host import generate_host_quote
 st.set_page_config(page_title="Cost and Price Calculator", page_icon="💷", layout="centered")
 inject_govuk_css()
 
-# -----------------------------------------------------------------------------
-# Logo autodetect + header (HTML, large and not sidebar-bound)
-# -----------------------------------------------------------------------------
-HEADER_LOGO_PX = 128  # <--- change this number to your preferred logo size (e.g., 112, 128, 144)
 
-def _auto_logo_b64() -> str | None:
-    """Find the first existing logo file and return Base64 string, else None."""
-    candidates = ["NFN-new-logo.png"]
-    here = Path(__file__).parent
-    for fn in candidates:
-        p = here / fn
-        if p.exists():
-            try:
-                return base64.b64encode(p.read_bytes()).decode("utf-8")
-            except Exception:
-                pass
-    return None
-
-_LOGO_B64 = _auto_logo_b64()
-
-# Big, flexible header (not constrained by Streamlit columns)
-st.markdown(
-    f"""
-    <div class="app-header" style="display:flex;align-items:center;gap:12px;margin: 0.25rem 0 0.75rem 0;">
-        {f'data:image/png;base64,{_LOGO_B64}' if _LOGO_B64 else ''}
-        <h1 class="govuk-heading-l" style="margin:0">Cost and Price Calculator</h1>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
 
 # -----------------------------------------------------------------------------
 # Helpers: rendering, export, formatting
@@ -554,4 +525,5 @@ if st.button("Reset Selections", key="reset_app_footer"):
         st.rerun()
     except Exception:
         st.experimental_rerun()
+
 
