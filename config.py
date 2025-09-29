@@ -2,6 +2,7 @@
 # Central configuration and small helpers used across the app.
 
 from dataclasses import dataclass
+from typing import Optional  # <-- 3.9-safe alternative to `float | None`
 
 @dataclass(frozen=True)
 class AppConfig:
@@ -12,15 +13,12 @@ class AppConfig:
     DAYS_PER_MONTH: float = 365.0 / 12.0  # ≈30.42
 
     # --- Utilisation model
-    # A 'fully utilised' week used for apportioning variable energy and maintenance by hours.
-    # Change this in the UI (sidebar) if needed.
-    FULL_UTILISATION_WEEK: float = 37.5   # 7.5h x 5 days
+    # 'Fully utilised' week used to apportion variable energy and maintenance by hours.
+    FULL_UTILISATION_WEEK: float = 37.5   # 7.5h x 5 days by default
 
     # --- Apportionment switches (per your requirements)
-    # Standing (daily) energy charges are NOT apportioned by hours.
-    APPORTION_FIXED_ENERGY: bool = False
-    # Maintenance IS apportioned by hours.
-    APPORTION_MAINTENANCE: bool = True
+    APPORTION_FIXED_ENERGY: bool = False  # Standing (daily) energy charges NOT apportioned by hours
+    APPORTION_MAINTENANCE: bool = True    # Maintenance IS apportioned by hours
 
     # --- Admin defaults
     DEFAULT_ADMIN_MONTHLY: float = 150.0
@@ -28,16 +26,12 @@ class AppConfig:
     # --- UI defaults
     GLOBAL_OUTPUT_DEFAULT: int = 100  # % Output utilisation (applies to Contractual + Ad‑hoc)
 
-
 CFG = AppConfig()
 
-
-def hours_scale(hours_open_per_week: float, full_week: float | None = None) -> float:
+def hours_scale(hours_open_per_week: float, full_week: Optional[float] = None) -> float:
     """
-    Returns a proportional scale based on hours open per week.
-      scale = hours_open_per_week / FULL_UTILISATION_WEEK
-
-    We do not clamp to 1.0 so extended opening (> full-week) can scale allocations up if desired.
+    Returns scale = hours_open_per_week / FULL_UTILISATION_WEEK.
+    Not clamped to 1.0 so extended hours can scale allocations up if desired.
     """
     try:
         h = float(hours_open_per_week)
