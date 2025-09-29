@@ -16,23 +16,20 @@ from host import generate_host_quote
 # ---- Page config
 st.set_page_config(page_title="Cost and Price Calculator", page_icon="💷", layout="centered")
 
-# ---- Streamlit header logo (v1.35+); fallback safe
-try:
-    st.logo(str(Path(__file__).parent / "NFN-new-logo.png"), size="large")  # top-left app chrome
-except AttributeError:
-    pass  # older Streamlit: st.logo not available; we still show an in-body header below
-
 # ---- CSS
 inject_govuk_css()
 
-# ---- In-body header (logo + title)
-_logo_path = Path(__file__).parent / "NFN-new-logo.png"
-c1, c2 = st.columns([1, 12])
-with c1:
-    if _logo_path.exists():
-        st.image(str(_logo_path), width=40)
-with c2:
-    st.markdown("## Cost and Price Calculator")
+# ---- In-page header (logo + title) — bigger and NOT in the sidebar
+LOGO_PATH = Path(__file__).parent / "NFN-new-logo.png"
+st.markdown(
+    f"""
+    <div class="app-header">
+        {f'data:image/png;base64,{base64.b64encode(LOGO_PATH.read_bytes()).decode()}' if LOGO_PATH.exists() else ''}
+        <h1 class="govuk-heading-l" style="margin:0">Cost and Price Calculator</h1>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 # ---- Helpers
 def _currency(v) -> str:
@@ -70,9 +67,10 @@ def export_csv_bytes(df: pd.DataFrame) -> BytesIO:
     b = BytesIO(); df.to_csv(b, index=False); b.seek(0); return b
 
 def _read_logo_b64() -> str | None:
-    if _logo_path.exists():
-        return base64.b64encode(_logo_path.read_bytes()).decode("utf-8")
-    return None
+    try:
+        return base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8") if LOGO_PATH.exists() else None
+    except Exception:
+        return None
 
 def export_html(host_df: pd.DataFrame | None,
                 prod_df: pd.DataFrame | None,
@@ -110,7 +108,7 @@ def export_html(host_df: pd.DataFrame | None,
     parts.append("<p>Prices are indicative and may change based on final scope and site conditions.</p>")
     b = BytesIO("".join(parts).encode("utf-8")); b.seek(0); return b
 
-# ---- Base inputs
+# ---- Base inputs (unchanged from your working app) --------------------------
 prisons_sorted = ["Select"] + sorted(PRISON_TO_REGION.keys())
 prison_choice = st.selectbox("Prison Name", prisons_sorted, index=0, key="prison_choice")
 region = PRISON_TO_REGION.get(prison_choice, "Select") if prison_choice != "Select" else "Select"
@@ -288,7 +286,6 @@ def run_production():
         "Planned Output (%)", min_value=0, max_value=100, value=CFG.GLOBAL_OUTPUT_DEFAULT,
         help="Scales both planned available and planned used labour minutes."
     )
-    output_scale = float(planned_output_pct) / 100.0
 
     prod_type = st.radio(
         "Do you want ad‑hoc costs with a deadline, or contractual work?",
@@ -306,7 +303,7 @@ def run_production():
         pricing_mode = "as-is" if pricing_mode_label.startswith("As‑is") else "target"
 
         budget_minutes_raw = labour_minutes_budget(int(num_prisoners), float(workshop_hours))
-        budget_minutes_planned = budget_minutes_raw * output_scale
+        budget_minutes_planned = budget_minutes_raw * (float(planned_output_pct) / 100.0)
         st.markdown(f"**Planned available Labour minutes @ {planned_output_pct}%:** {budget_minutes_planned:,.0f}")
 
         num_items = st.number_input("Number of items produced?", min_value=1, value=1, step=1, key="num_items_prod")
@@ -330,7 +327,7 @@ def run_production():
                     cap_100 = (assigned * workshop_hours * 60.0) / (minutes_per * required)
                 else:
                     cap_100 = 0.0
-                cap_planned = cap_100 * output_scale
+                cap_planned = cap_100 * (float(planned_output_pct) / 100.0)
                 st.markdown(f"{disp} capacity @ 100%: **{cap_100:.0f} units/week** · @ {planned_output_pct}%: **{cap_planned:.0f}**")
 
                 if pricing_mode == "target":
@@ -345,7 +342,7 @@ def run_production():
             st.error(f"Prisoners assigned across items ({total_assigned}) exceed total prisoners ({int(num_prisoners)})."); return
 
         used_minutes_raw = total_assigned * workshop_hours * 60.0
-        used_minutes_planned = used_minutes_raw * output_scale
+        used_minutes_planned = used_minutes_raw * (float(planned_output_pct) / 100.0)
         st.markdown(f"**Planned used Labour minutes @ {planned_output_pct}%:** {used_minutes_planned:,.0f}")
 
         if pricing_mode == "as-is" and used_minutes_planned > budget_minutes_planned:
@@ -491,3 +488,4 @@ if st.button("Reset Selections", key="reset_app_footer"):
     for k in list(st.session_state.keys()): del st.session_state[k]
     try: st.rerun()
     except Exception: st.experimental_rerun()
+st.markdown('\n', unsafe_allow_html=True)
